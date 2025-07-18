@@ -1,26 +1,91 @@
 @import "tailwindcss";
 
+/* Professional Color Theme System */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Primary Colors */
+  --color-primary: #4A5568;      /* Dark slate - main brand color */
+  --color-primary-dark: #2D3748; /* Darker slate - gradients, text */
+  --color-primary-light: #6B7280; /* Medium gray - secondary text */
+  
+  /* Army Green Accent */
+  --color-accent: #556B2F;       /* Army green - buttons, selected states */
+  --color-accent-dark: #3D5229;  /* Dark army green - hover states */
+  
+  /* Background Colors */
+  --color-bg-primary: #FFFFFF;   /* Pure white - main backgrounds */
+  --color-bg-secondary: #F7FAFC; /* Light gray - input backgrounds */
+  --color-bg-tertiary: #EDF2F7;  /* Medium light gray - hover states */
+  
+  /* Border Colors */
+  --color-border: #E2E8F0;       /* Light gray - borders */
+  --color-border-dark: #CBD5E0;  /* Medium gray - focus borders */
+  
+  /* Text Colors */
+  --color-text-primary: #2D3748;   /* Dark gray - primary text */
+  --color-text-secondary: #4A5568; /* Medium gray - secondary text */
+  --color-text-light: #FFFFFF;     /* White - text on dark backgrounds */
+  
+  /* Shadow Colors */
+  --color-shadow: rgba(74, 85, 104, 0.1); /* Primary color with opacity */
+  --color-shadow-dark: rgba(45, 55, 72, 0.2); /* Darker shadow */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/* Dark mode support (if needed later) */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --color-bg-primary: #1A202C;
+    --color-bg-secondary: #2D3748;
+    --color-bg-tertiary: #4A5568;
+    --color-text-primary: #F7FAFC;
+    --color-text-secondary: #E2E8F0;
+    --color-border: #4A5568;
+    --color-border-dark: #6B7280;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Custom scrollbar for autocomplete dropdowns */
+.autocomplete-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.autocomplete-dropdown::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.autocomplete-dropdown::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.autocomplete-dropdown::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Smooth transitions for all interactive elements */
+* {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Focus styles for better accessibility */
+input:focus,
+button:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Loading animation for current location button */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
