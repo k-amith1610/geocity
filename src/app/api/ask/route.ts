@@ -1,92 +1,120 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import OpenAI from 'openai';
 
-// Mocked city incident data (can later be replaced with Firestore)
+// In-memory chat memory (temporary, resets on server restart)
+const chatMemory = new Map<string, any[]>();
+
+// Static city incident data (can be fetched from Firestore later)
 const INCIDENTS = [
   {
     id: 1,
-    type: 'Traffic Accident',
-    location: '5th Avenue & Main St',
-    time: '2024-06-01T08:30:00Z',
-    status: 'Resolved',
-    description: 'Minor collision, no injuries reported.'
+    type: 'Traffic Jam',
+    location: 'Banjara Hills Road No. 12',
+    time: '2025-07-19T08:15:00Z',
+    status: 'Ongoing',
+    description: 'Heavy congestion due to stalled vehicle and peak hour rush.'
   },
   {
     id: 2,
     type: 'Power Outage',
-    location: 'Downtown District',
-    time: '2024-06-01T09:15:00Z',
+    location: 'Madhapur Tech Hub',
+    time: '2025-07-19T06:45:00Z',
     status: 'Ongoing',
-    description: 'Widespread outage affecting 200+ homes.'
+    description: 'Transformer issue affecting major IT offices and residential blocks.'
   },
   {
     id: 3,
-    type: 'Water Leak',
-    location: 'Maple Street',
-    time: '2024-06-01T07:50:00Z',
+    type: 'Flooding',
+    location: 'Begumpet underpass',
+    time: '2025-07-18T22:30:00Z',
     status: 'Resolved',
-    description: 'Burst pipe repaired by city maintenance.'
+    description: 'Waterlogged after overnight rains. Drained and reopened by GHMC.'
+  },
+  {
+    id: 4,
+    type: 'Fire Accident',
+    location: 'Kukatpally Industrial Area',
+    time: '2025-07-18T20:10:00Z',
+    status: 'Resolved',
+    description: 'Short circuit led to fire in a warehouse. No casualties reported.'
+  },
+  {
+    id: 5,
+    type: 'Water Supply Disruption',
+    location: 'Secunderabad Cantonment',
+    time: '2025-07-19T04:00:00Z',
+    status: 'Ongoing',
+    description: 'Pipeline maintenance causing low pressure in nearby areas.'
   }
 ];
 
-// Convert incident list to a readable Gemini context string
-function formatIncidentData(incidents: typeof INCIDENTS): string {
-  return incidents.map(incident => {
-    return `- [${incident.type}] at ${incident.location} (${incident.status}): ${incident.description}`;
-  }).join('\n');
-}
 
-// Gemini config
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+// Format incidents for prompt
+function formatIncidentData() {
+  return INCIDENTS.map(i =>
+    `- [${i.type}] at ${i.location} (${i.status}): ${i.description}`
+  ).join('\n');
+}
 
 export async function POST(request: NextRequest) {
   try {
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json({ status: 'error', message: 'Missing Gemini API key.' }, { status: 500 });
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_API_KEY) {
+      return NextResponse.json({ status: 'error', message: 'Missing OpenAI API key' }, { status: 500 });
     }
 
     const body = await request.json();
-    const userQuery = body.query;
+    const { query, sessionId = 'default' } = body;
 
-    if (!userQuery || typeof userQuery !== 'string') {
-      return NextResponse.json({ status: 'error', message: 'Missing or invalid "query" in request.' }, { status: 400 });
+    if (!query || typeof query !== 'string') {
+      return NextResponse.json({ status: 'error', message: 'Missing or invalid query' }, { status: 400 });
     }
 
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-    const incidentSummary = formatIncidentData(INCIDENTS);
-    const prompt = `
-You are a smart city AI assistant. Help users understand real-time incidents based on the data provided.
+    // Load previous messages for this session
+    const previousMessages = chatMemory.get(sessionId) || [];
 
-Incident Data (as of June 1, 2024):
-${incidentSummary}
+    const systemPrompt = `
+You are a helpful smart city AI assistant.
+Use the incident data below to answer questions.
 
-User question: "${userQuery}"
-
-Respond concisely with relevant incident insights.
+City Incident Data (as of June 1, 2024):
+${formatIncidentData()}
 `;
 
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7 },
-      safetySettings: [
-        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE }
-      ]
+    const fullMessages = [
+      { role: 'system', content: systemPrompt },
+      ...previousMessages,
+      { role: 'user', content: query }
+    ];
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: fullMessages,
+      temperature: 0.7
     });
 
-    const answer = result?.response?.candidates?.[0]?.content?.parts?.[0]?.text || 'No answer generated.';
+    const assistantReply = completion.choices?.[0]?.message?.content || 'No response generated';
+
+    const updatedMessages = [
+      ...previousMessages,
+      { role: 'user', content: query },
+      { role: 'assistant', content: assistantReply }
+    ];
+
+    // Save updated memory
+    chatMemory.set(sessionId, updatedMessages);
+
     return NextResponse.json({
       status: 'success',
-      answer,
+      answer: assistantReply,
+      messages: updatedMessages,
       timestamp: new Date().toISOString()
     });
 
   } catch (error: any) {
-    console.error('Gemini Q&A error:', error?.message || error);
-    return NextResponse.json({ status: 'error', message: 'Internal server error.' }, { status: 500 });
+    console.error('OpenAI chat error:', error?.message || error);
+    return NextResponse.json({ status: 'error', message: 'Internal server error' }, { status: 500 });
   }
 }
