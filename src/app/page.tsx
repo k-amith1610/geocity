@@ -7,6 +7,7 @@ import GoogleMap from '@/components/GoogleMap';
 import ReportModal from '@/components/ReportModal';
 import { ToastContainer, useToast } from '@/components/Toast';
 import CyberLoader from '@/components/CyberLoader';
+import { useAuth } from '@/contexts/AuthContext';
 // import { submitReport } from '@/lib/api';
 
 interface ReportData {
@@ -39,6 +40,7 @@ export default function Home() {
   const [directionsRenderer, setDirectionsRenderer] = useState<google.maps.DirectionsRenderer | null>(null);
   
   const { toasts, removeToast, showSuccess, showError } = useToast();
+  const { user, isAuthenticated } = useAuth();
 
   const handleLoaderComplete = () => {
     setShowLoader(false);

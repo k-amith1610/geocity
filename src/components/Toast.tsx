@@ -46,7 +46,7 @@ export default function Toast({ toast, onRemove }: ToastProps) {
     const showTimer = setTimeout(() => setIsVisible(true), 100);
     
     // Auto-remove toast
-    const duration = toast.duration || 5000;
+    const duration = toast.duration || 3500; // Changed from 5000 to 3500ms (3.5 seconds)
     const hideTimer = setTimeout(() => {
       setIsLeaving(true);
       setTimeout(() => onRemove(toast.id), 300);
