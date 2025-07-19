@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { X, Upload, MapPin, Locate, Flag, FileImage, AlertTriangle } from 'lucide-react';
 import { useToast } from './Toast';
+import { getDeviceInfo } from '@/lib/deviceInfo';
 
 interface ReportModalProps {
   isOpen: boolean;
@@ -12,10 +13,25 @@ interface ReportModalProps {
 }
 
 interface ReportData {
-  photo: File | null;
+  photo: string; // Base64 encoded
+  photoDetails: {
+    name: string;
+    size: number;
+    type: string;
+    lastModified: number;
+  };
   location: string;
   description: string;
   emergency: boolean;
+  deviceInfo: {
+    publicIP: string;
+    userAgent: string;
+    screenResolution: string;
+    timezone: string;
+    language: string;
+    timestamp: string;
+    deviceType: 'mobile' | 'tablet' | 'desktop';
+  };
 }
 
 export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: ReportModalProps) {
@@ -177,16 +193,27 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     setIsSubmitting(true);
     
     try {
+      // Get device information for fraud prevention
+      const deviceInfo = await getDeviceInfo();
+      
       const reportData: ReportData = {
-        photo,
+        photo: photoPreview || '', // Use photoPreview for base64
+        photoDetails: {
+          name: photo.name,
+          size: photo.size,
+          type: photo.type,
+          lastModified: photo.lastModified,
+        },
         location: location.trim(),
         description: description.trim(),
-        emergency
+        emergency,
+        deviceInfo
       };
 
       if (onSubmit) {
         await onSubmit(reportData);
       }
+      console.log(reportData);
       
       showSuccess('Report Submitted', 'Your report has been submitted successfully.');
       handleClose();
@@ -195,7 +222,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     } finally {
       setIsSubmitting(false);
     }
-  }, [photo, location, description, emergency, onSubmit, showSuccess, showError]);
+  }, [photo, location, description, emergency, onSubmit, showSuccess, showError, photoPreview]);
 
   // Handle modal close
   const handleClose = useCallback(() => {

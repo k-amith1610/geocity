@@ -7,12 +7,28 @@ import GoogleMap from '@/components/GoogleMap';
 import ReportModal from '@/components/ReportModal';
 import { ToastContainer, useToast } from '@/components/Toast';
 import CyberLoader from '@/components/CyberLoader';
+import { submitReport } from '@/lib/api';
 
 interface ReportData {
-  photo: File | null;
+  photo: string; // Base64 encoded
+  photoDetails: {
+    name: string;
+    size: number;
+    type: string;
+    lastModified: number;
+  };
   location: string;
   description: string;
   emergency: boolean;
+  deviceInfo: {
+    publicIP: string;
+    userAgent: string;
+    screenResolution: string;
+    timezone: string;
+    language: string;
+    timestamp: string;
+    deviceType: 'mobile' | 'tablet' | 'desktop';
+  };
 }
 
 export default function Home() {
@@ -44,13 +60,38 @@ export default function Home() {
 
   const handleSubmitReport = async (data: ReportData) => {
     try {
-      // Here you would typically send the data to your backend
-      console.log('Report Data:', data);
+      // Convert File to base64 if it's still a File object
+      let photoBase64 = data.photo;
+      let photoDetails = data.photoDetails;
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      showSuccess('Report Submitted', 'Your report has been submitted successfully and will be reviewed.');
+      // If photo is still a File object, convert it
+      if (data.photo && typeof data.photo === 'object' && 'name' in data.photo) {
+        const file = data.photo as unknown as File;
+        photoBase64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        
+        photoDetails = {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified,
+        };
+      }
+
+      // Submit to backend API
+      const response = await submitReport({
+        photo: photoBase64,
+        photoDetails,
+        location: data.location,
+        description: data.description,
+        emergency: data.emergency,
+        deviceInfo: data.deviceInfo
+      });
+
+      showSuccess('Report Submitted', response.message || 'Your report has been submitted successfully and will be reviewed.');
     } catch (error) {
       showError('Submission Failed', 'Failed to submit report. Please try again.');
       throw error; // Re-throw to let the modal handle the error state

@@ -2,9 +2,24 @@ import { NextRequest, NextResponse } from 'next/server';
 
 interface ReportData {
   photo: string; // Base64 encoded image
+  photoDetails: {
+    name: string;
+    size: number;
+    type: string;
+    lastModified: number;
+  };
   location: string;
   description: string;
   emergency: boolean;
+  deviceInfo: {
+    publicIP: string;
+    userAgent: string;
+    screenResolution: string;
+    timezone: string;
+    language: string;
+    timestamp: string;
+    deviceType: 'mobile' | 'tablet' | 'desktop';
+  };
   timestamp: string;
 }
 
@@ -34,13 +49,16 @@ export async function POST(request: NextRequest) {
 
     const response = {
       status: 'success',
-      message: 'Report submitted successfully',
+      message: body.emergency ? 'Emergency report submitted successfully' : 'Report submitted successfully',
       reportId: `REP-${Date.now()}`,
       timestamp: new Date().toISOString(),
       data: {
         location: body.location,
         description: body.description,
-        hasPhoto: !!body.photo
+        emergency: body.emergency,
+        hasPhoto: !!body.photo,
+        photoDetails: body.photoDetails,
+        deviceInfo: body.deviceInfo
       }
     };
 

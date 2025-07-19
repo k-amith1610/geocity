@@ -8,11 +8,28 @@ export interface ApiResponse<T = any> {
   data?: T;
 }
 
+export interface DeviceInfo {
+  publicIP: string;
+  userAgent: string;
+  screenResolution: string;
+  timezone: string;
+  language: string;
+  timestamp: string;
+  deviceType: 'mobile' | 'tablet' | 'desktop';
+}
+
 export interface ReportData {
   photo: string; // Base64 encoded
+  photoDetails: {
+    name: string;
+    size: number;
+    type: string;
+    lastModified: number;
+  };
   location: string;
   description: string;
   emergency: boolean;
+  deviceInfo: DeviceInfo;
 }
 
 export interface RouteData {
