@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { X, Upload, MapPin, Locate, Flag, FileImage } from 'lucide-react';
+import { X, Upload, MapPin, Locate, Flag, FileImage, AlertTriangle } from 'lucide-react';
 import { useToast } from './Toast';
 
 interface ReportModalProps {
@@ -15,6 +15,7 @@ interface ReportData {
   photo: File | null;
   location: string;
   description: string;
+  emergency: boolean;
 }
 
 export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: ReportModalProps) {
@@ -22,6 +23,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
+  const [emergency, setEmergency] = useState(false);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -178,7 +180,8 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
       const reportData: ReportData = {
         photo,
         location: location.trim(),
-        description: description.trim()
+        description: description.trim(),
+        emergency
       };
 
       if (onSubmit) {
@@ -192,7 +195,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     } finally {
       setIsSubmitting(false);
     }
-  }, [photo, location, description, onSubmit, showSuccess, showError]);
+  }, [photo, location, description, emergency, onSubmit, showSuccess, showError]);
 
   // Handle modal close
   const handleClose = useCallback(() => {
@@ -200,6 +203,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     setPhotoPreview(null);
     setLocation('');
     setDescription('');
+    setEmergency(false);
     onClose();
   }, [onClose]);
 
@@ -315,6 +319,27 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
               </div>
             </div>
 
+            {/* Emergency Checkbox */}
+            <div>
+              <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all duration-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={emergency}
+                  onChange={(e) => setEmergency(e.target.checked)}
+                  className="w-4 h-4 text-[var(--color-accent)] bg-gray-100 border-gray-300 rounded focus:ring-[var(--color-accent)] focus:ring-2"
+                />
+                <div className="flex items-center space-x-2">
+                  <AlertTriangle className={`w-5 h-5 ${emergency ? 'text-red-500' : 'text-gray-400'}`} />
+                  <div>
+                    <span className={`text-sm font-medium ${emergency ? 'text-red-600' : 'text-gray-700'}`}>
+                      Emergency Report
+                    </span>
+                    <p className="text-xs text-gray-500">Mark this if immediate attention is required</p>
+                  </div>
+                </div>
+              </label>
+            </div>
+
             {/* Description */}
             <div>
               <label className="block text-xs font-semibold text-gray-900 mb-2">
@@ -344,14 +369,20 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
             type="submit"
             onClick={handleSubmit}
             disabled={isSubmitting || !photo || !location.trim()}
-            className="px-4 py-2 bg-[var(--color-primary)] text-white rounded-lg hover:bg-[var(--color-primary-dark)] disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 cursor-pointer flex items-center space-x-2 text-sm"
+            className={`px-4 py-2 text-white rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 cursor-pointer flex items-center space-x-2 text-sm ${
+              emergency 
+                ? 'bg-red-600 hover:bg-red-700' 
+                : 'bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)]'
+            }`}
           >
             {isSubmitting ? (
               <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : emergency ? (
+              <AlertTriangle className="w-3.5 h-3.5" />
             ) : (
               <Flag className="w-3.5 h-3.5" />
             )}
-            <span>{isSubmitting ? 'Submitting...' : 'Submit Report'}</span>
+            <span>{isSubmitting ? 'Submitting...' : emergency ? 'Submit Emergency Report' : 'Submit Report'}</span>
           </button>
         </div>
       </div>

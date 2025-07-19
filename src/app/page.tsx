@@ -12,6 +12,7 @@ interface ReportData {
   photo: File | null;
   location: string;
   description: string;
+  emergency: boolean;
 }
 
 export default function Home() {

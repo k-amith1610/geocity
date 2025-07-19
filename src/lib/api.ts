@@ -12,6 +12,7 @@ export interface ReportData {
   photo: string; // Base64 encoded
   location: string;
   description: string;
+  emergency: boolean;
 }
 
 export interface RouteData {

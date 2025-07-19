@@ -4,6 +4,7 @@ interface ReportData {
   photo: string; // Base64 encoded image
   location: string;
   description: string;
+  emergency: boolean;
   timestamp: string;
 }
 
