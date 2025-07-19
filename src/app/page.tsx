@@ -7,7 +7,7 @@ import GoogleMap from '@/components/GoogleMap';
 import ReportModal from '@/components/ReportModal';
 import { ToastContainer, useToast } from '@/components/Toast';
 import CyberLoader from '@/components/CyberLoader';
-import { submitReport } from '@/lib/api';
+// import { submitReport } from '@/lib/api';
 
 interface ReportData {
   photo: string; // Base64 encoded
@@ -81,7 +81,8 @@ export default function Home() {
         };
       }
 
-      // Submit to backend API
+      // Simulate backend API call (commented out)
+      /*
       const response = await submitReport({
         photo: photoBase64,
         photoDetails,
@@ -90,8 +91,15 @@ export default function Home() {
         emergency: data.emergency,
         deviceInfo: data.deviceInfo
       });
+      */
 
-      showSuccess('Report Submitted', response.message || 'Your report has been submitted successfully and will be reviewed.');
+      // Simulate successful response
+      const response = {
+        status: 'success',
+        message: 'Your report has been submitted successfully and will be reviewed.'
+      };
+
+      showSuccess('Report Submitted', response.message);
     } catch (error) {
       showError('Submission Failed', 'Failed to submit report. Please try again.');
       throw error; // Re-throw to let the modal handle the error state

@@ -70,6 +70,7 @@ export async function checkHealth(): Promise<ApiResponse> {
   return apiCall('/health');
 }
 
+/*
 // Reports API
 export async function submitReport(reportData: ReportData): Promise<ApiResponse> {
   return apiCall('/reports', {
@@ -95,4 +96,5 @@ export async function calculateRoute(routeData: RouteData): Promise<ApiResponse>
 
 export async function getRouteHistory(): Promise<ApiResponse> {
   return apiCall('/routes');
-} 
+}
+*/ 

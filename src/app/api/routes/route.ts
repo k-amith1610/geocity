@@ -1,87 +1,114 @@
+/*
 import { NextRequest, NextResponse } from 'next/server';
 
-interface RouteRequest {
+interface RouteData {
   origin: string;
   destination: string;
   mode: 'driving' | 'walking' | 'bicycling';
 }
 
-interface RouteResponse {
-  distance: string;
-  duration: string;
-  durationValue: number;
-  route: any; // Google Maps route object
+interface RouteHistory {
+  id: string;
+  origin: string;
+  destination: string;
+  mode: string;
+  timestamp: string;
+  distance?: string;
+  duration?: string;
 }
+
+// In-memory storage for demo purposes
+// In production, use a proper database
+let routeHistory: RouteHistory[] = [];
 
 export async function POST(request: NextRequest) {
   try {
-    const body: RouteRequest = await request.json();
+    const body: RouteData = await request.json();
     
     // Validate required fields
-    if (!body.origin || !body.destination || !body.mode) {
+    if (!body.origin || !body.destination) {
       return NextResponse.json(
-        { 
-          status: 'error', 
-          message: 'Origin, destination, and mode are required' 
-        }, 
+        { status: 'error', message: 'Origin and destination are required' },
         { status: 400 }
       );
     }
 
-    // Here you would typically:
+    // Validate travel mode
+    const validModes = ['driving', 'walking', 'bicycling'];
+    if (!validModes.includes(body.mode)) {
+      return NextResponse.json(
+        { status: 'error', message: 'Invalid travel mode' },
+        { status: 400 }
+      );
+    }
+
+    // In a real implementation, you would:
     // 1. Call Google Maps Directions API
-    // 2. Cache results
-    // 3. Log route requests
-    // 4. Add analytics
+    // 2. Process the response
+    // 3. Store the route in database
+    // 4. Return the route data
 
     // Simulate route calculation
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const routeId = `ROUTE-${Date.now()}`;
+    const routeEntry: RouteHistory = {
+      id: routeId,
+      origin: body.origin,
+      destination: body.destination,
+      mode: body.mode,
+      timestamp: new Date().toISOString(),
+      distance: '5.2 km', // Simulated
+      duration: '12 min'  // Simulated
+    };
 
-    const response = {
+    // Store route history
+    routeHistory.push(routeEntry);
+
+    // Log for debugging
+    console.log('Route calculated:', {
+      origin: body.origin,
+      destination: body.destination,
+      mode: body.mode,
+      routeId
+    });
+
+    return NextResponse.json({
       status: 'success',
       message: 'Route calculated successfully',
       data: {
+        routeId,
         origin: body.origin,
         destination: body.destination,
         mode: body.mode,
-        distance: '5.2 km',
-        duration: '12 mins',
-        durationValue: 720 // seconds
+        distance: routeEntry.distance,
+        duration: routeEntry.duration,
+        timestamp: routeEntry.timestamp
       }
-    };
+    });
 
-    return NextResponse.json(response, { status: 200 });
   } catch (error) {
-    console.error('Route calculation error:', error);
+    console.error('Error calculating route:', error);
     return NextResponse.json(
-      { 
-        status: 'error', 
-        message: 'Failed to calculate route' 
-      }, 
+      { status: 'error', message: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    // Get route history or cached routes
-    const response = {
+    // Return route history (in production, implement pagination and filtering)
+    return NextResponse.json({
       status: 'success',
-      message: 'Route history retrieved',
-      count: 0,
-      routes: []
-    };
-
-    return NextResponse.json(response, { status: 200 });
+      data: {
+        routes: routeHistory.slice(-10) // Last 10 routes
+      }
+    });
   } catch (error) {
-    console.error('Get routes error:', error);
+    console.error('Error fetching routes:', error);
     return NextResponse.json(
-      { 
-        status: 'error', 
-        message: 'Failed to retrieve routes' 
-      }, 
+      { status: 'error', message: 'Internal server error' },
       { status: 500 }
     );
   }
-} 
+}
+*/ 
