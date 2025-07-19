@@ -17,12 +17,11 @@ import {
   QueryDocumentSnapshot
 } from 'firebase/firestore';
 
-// User interface based on the Firestore structure
+// User interface based on the Firestore structure (without password for API)
 interface User {
   id?: string;
   name: string;
   email: string;
-  password: string;
   address: string;
   phoneNumber: number;
   pointsEarned: number;
@@ -43,7 +42,7 @@ export async function GET(request: NextRequest) {
     const usersRef = collection(db, 'user');
 
     if (id) {
-      // Get specific user by ID
+      // Get specific user by ID (Firebase UID)
       const userDoc = await getDoc(doc(db, 'user', id));
       
       if (!userDoc.exists()) {
@@ -112,15 +111,15 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create a new user
+// POST - Create a new user (this should be used with authentication)
 export async function POST(request: NextRequest) {
   try {
     const body: User = await request.json();
 
     // Validation
-    if (!body.name || !body.email || !body.password) {
+    if (!body.name || !body.email) {
       return NextResponse.json(
-        { error: 'Name, email, and password are required' },
+        { error: 'Name and email are required' },
         { status: 400 }
       );
     }
@@ -141,7 +140,6 @@ export async function POST(request: NextRequest) {
     const userData: Omit<User, 'id'> = {
       name: body.name,
       email: body.email,
-      password: body.password, // Note: In production, hash the password
       address: body.address || '',
       phoneNumber: body.phoneNumber || 0,
       pointsEarned: body.pointsEarned || 0,
