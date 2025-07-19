@@ -1,6 +1,42 @@
 // API utility functions for frontend-backend communication
+import axios from 'axios';
 
 const API_BASE = '/api';
+
+// Create axios instance with base configuration
+const api = axios.create({
+  baseURL: API_BASE,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add request interceptor to include auth token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Clear invalid auth data
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('userData');
+    }
+    return Promise.reject(error);
+  }
+);
 
 export interface ApiResponse<T = any> {
   status: 'success' | 'error';
@@ -41,27 +77,32 @@ export interface RouteData {
 // Generic API call function
 async function apiCall<T>(
   endpoint: string, 
-  options: RequestInit = {}
+  options: any = {}
 ): Promise<ApiResponse<T>> {
   try {
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-      ...options,
+    const { method = 'GET', data, ...config } = options;
+    
+    const response = await api.request({
+      url: endpoint,
+      method,
+      data,
+      ...config,
     });
 
-    const data = await response.json();
-    
-    if (!response.ok) {
-      throw new Error(data.message || 'API request failed');
-    }
-
-    return data;
-  } catch (error) {
+    return response.data;
+  } catch (error: any) {
     console.error(`API Error (${endpoint}):`, error);
-    throw error;
+    
+    // Handle axios error response
+    if (error.response?.data?.message) {
+      throw new Error(error.response.data.message);
+    } else if (error.response?.data?.error) {
+      throw new Error(error.response.data.error);
+    } else if (error.message) {
+      throw new Error(error.message);
+    } else {
+      throw new Error('API request failed');
+    }
   }
 }
 
@@ -75,10 +116,10 @@ export async function checkHealth(): Promise<ApiResponse> {
 export async function submitReport(reportData: ReportData): Promise<ApiResponse> {
   return apiCall('/reports', {
     method: 'POST',
-    body: JSON.stringify({
+    data: {
       ...reportData,
       timestamp: new Date().toISOString()
-    }),
+    },
   });
 }
 
@@ -90,7 +131,7 @@ export async function getReports(): Promise<ApiResponse> {
 export async function calculateRoute(routeData: RouteData): Promise<ApiResponse> {
   return apiCall('/routes', {
     method: 'POST',
-    body: JSON.stringify(routeData),
+    data: routeData,
   });
 }
 

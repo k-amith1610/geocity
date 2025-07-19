@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import axios from 'axios';
 
 interface User {
   uid: string;
@@ -20,6 +21,41 @@ interface AuthContextType {
   logout: () => void;
   isAuthenticated: boolean;
 }
+
+// Create axios instance with base configuration
+const api = axios.create({
+  baseURL: '/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add request interceptor to include auth token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Clear invalid auth data
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('userData');
+    }
+    return Promise.reject(error);
+  }
+);
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -53,55 +89,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
+      const response = await api.put('/auth', { email, password });
+      const { user: userData, token } = response.data;
 
       // Store auth data
-      localStorage.setItem('authToken', data.token);
-      localStorage.setItem('userData', JSON.stringify(data.user));
+      localStorage.setItem('authToken', token);
+      localStorage.setItem('userData', JSON.stringify(userData));
       
-      setUser(data.user);
+      setUser(userData);
     } catch (error: any) {
       console.error('Login error:', error);
-      throw error;
+      
+      // Handle axios error response
+      if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      } else if (error.message) {
+        throw new Error(error.message);
+      } else {
+        throw new Error('Login failed');
+      }
     }
   };
 
   const signup = async (userData: any) => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userData),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Registration failed');
-      }
+      const response = await api.post('/auth', userData);
+      const { user: newUser, token } = response.data;
 
       // Store auth data
-      localStorage.setItem('authToken', data.token);
-      localStorage.setItem('userData', JSON.stringify(data.user));
+      localStorage.setItem('authToken', token);
+      localStorage.setItem('userData', JSON.stringify(newUser));
       
-      setUser(data.user);
+      setUser(newUser);
     } catch (error: any) {
       console.error('Signup error:', error);
-      throw error;
+      
+      // Handle axios error response
+      if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      } else if (error.message) {
+        throw new Error(error.message);
+      } else {
+        throw new Error('Registration failed');
+      }
     }
   };
 
@@ -114,9 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     
     // Call logout API
-    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth`, {
-      method: 'DELETE',
-    }).catch(error => {
+    api.delete('/auth').catch(error => {
       console.error('Logout API error:', error);
     });
   };
