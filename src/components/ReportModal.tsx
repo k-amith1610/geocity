@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import { X, Upload, MapPin, Locate, Flag, FileImage, AlertTriangle } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { X, Upload, MapPin, Locate, Flag, FileImage, AlertTriangle, Camera, CameraOff, RotateCcw } from 'lucide-react';
 import { useToast } from './Toast';
 import { getDeviceInfo } from '@/lib/deviceInfo';
 
@@ -43,8 +43,77 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  // Camera modal states
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const { showSuccess, showError, showInfo } = useToast();
+
+  // Firebase Studio approach: Simple camera stream start
+  const startCameraStream = useCallback(async () => {
+    if (videoRef.current) {
+      try {
+        // Try HD constraints first, fallback to basic if needed
+        let stream: MediaStream;
+        
+        try {
+          // HD constraints for better image quality
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { 
+              facingMode,
+              width: { ideal: 1920, min: 1280 },
+              height: { ideal: 1080, min: 720 },
+              aspectRatio: { ideal: 16/9 }
+            },
+          });
+          console.log('Camera stream started successfully with HD quality');
+        } catch (hdError) {
+          console.warn('HD constraints failed, falling back to basic:', hdError);
+          // Fallback to basic constraints
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode },
+          });
+          console.log('Camera stream started successfully with basic quality');
+        }
+        
+        videoRef.current.srcObject = stream;
+        setStream(stream);
+        setIsVideoLoading(false);
+        setCameraError(null);
+      } catch (err) {
+        console.error("Error accessing camera:", err);
+        setCameraError("Could not access camera. Please check permissions.");
+        // Close camera on error
+        setIsCameraOpen(false);
+        setIsVideoLoading(false);
+        setHasMultipleCameras(false);
+        setCameraError(null);
+        setStream(null);
+      }
+    }
+  }, [facingMode]);
+
+  // Cleanup effect for camera streams - Firebase Studio approach
+  useEffect(() => {
+    if (isCameraOpen) {
+      startCameraStream();
+    }
+    
+    return () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const mediaStream = videoRef.current.srcObject as MediaStream;
+        mediaStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [isCameraOpen, facingMode, startCameraStream]);
 
   // Handle file selection
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,6 +143,125 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
       showSuccess('Photo Selected', 'Photo has been uploaded successfully.');
     }
   }, [showSuccess, showError]);
+
+  // Check for multiple cameras
+  const checkMultipleCameras = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      setHasMultipleCameras(videoDevices.length > 1);
+      console.log('Found video devices:', videoDevices.length);
+    } catch (error) {
+      console.warn('Could not enumerate devices:', error);
+      setHasMultipleCameras(false);
+    }
+  }, []);
+
+  // Open camera modal - Firebase Studio approach
+  const openCamera = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      showError('Camera Not Supported', 'Your browser does not support camera access.');
+      return;
+    }
+
+    setIsCameraLoading(true);
+    setCameraError(null);
+    
+    try {
+      await checkMultipleCameras();
+      setIsCameraOpen(true);
+      setIsVideoLoading(true);
+      showSuccess('Camera Opened', 'Camera is ready. Click the capture button when ready.');
+    } catch (error: any) {
+      console.error('Camera access error:', error);
+      let errorMessage = 'Unable to access camera. Please try again.';
+      
+      if (error.name === 'NotAllowedError') {
+        errorMessage = 'Camera access denied. Please allow camera access in your browser settings.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage = 'No camera found on your device.';
+      } else if (error.name === 'NotReadableError') {
+        errorMessage = 'Camera is already in use by another application.';
+      } else if (error.name === 'OverconstrainedError') {
+        errorMessage = 'Camera does not meet the required specifications.';
+      } else if (error.name === 'NotSupportedError') {
+        errorMessage = 'Camera is not supported on this device.';
+      }
+      
+      setCameraError(errorMessage);
+      showError('Camera Error', errorMessage);
+    } finally {
+      setIsCameraLoading(false);
+    }
+  }, [showSuccess, showError, checkMultipleCameras]);
+
+  // Close camera modal - Firebase Studio approach
+  const closeCamera = useCallback(() => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const mediaStream = videoRef.current.srcObject as MediaStream;
+      mediaStream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    
+    setIsCameraOpen(false);
+    setIsVideoLoading(false);
+    setHasMultipleCameras(false);
+    setCameraError(null);
+    setStream(null);
+  }, []);
+
+  // Switch camera (front/back) - Firebase Studio approach
+  const switchCamera = useCallback(() => {
+    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  }, []);
+
+  // Capture photo from camera - Firebase Studio approach with HD quality
+  const capturePhoto = useCallback(() => {
+    if (!videoRef.current) return;
+    
+    const canvas = document.createElement("canvas");
+    // Set canvas to video dimensions for maximum quality
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const context = canvas.getContext("2d");
+    
+    if (context) {
+      // Enable image smoothing for better quality
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      
+      // Draw the video frame to canvas
+      context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to high-quality JPEG
+      const dataUri = canvas.toDataURL("image/jpeg", 0.95); // 95% quality
+      
+      // Create file from data URI
+      const byteString = atob(dataUri.split(',')[1]);
+      const mimeString = dataUri.split(',')[0].split(':')[1].split(';')[0];
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([ab], { type: mimeString });
+      const file = new File([blob], `camera_photo_${Date.now()}.jpg`, {
+        type: 'image/jpeg',
+        lastModified: Date.now()
+      });
+      
+      // Validate file size (10MB limit for HD images)
+      if (file.size > 10 * 1024 * 1024) {
+        showError('Photo Too Large', 'Captured photo is too large. Please try again.');
+        return;
+      }
+      
+      setPhoto(file);
+      setPhotoPreview(dataUri);
+      showSuccess('HD Photo Captured', 'High-quality photo has been captured successfully.');
+      closeCamera();
+    }
+  }, [closeCamera, showSuccess, showError]);
 
   // Handle current location
   const getCurrentLocation = useCallback(async () => {
@@ -231,8 +419,9 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     setLocation('');
     setDescription('');
     setEmergency(false);
+    closeCamera(); // Close camera if open
     onClose();
-  }, [onClose]);
+  }, [onClose, closeCamera]);
 
   // Handle backdrop click
   const handleBackdropClick = useCallback((e: React.MouseEvent) => {
@@ -242,6 +431,122 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
   }, [handleClose]);
 
   if (!isOpen) return null;
+
+  // Camera Modal
+  if (isCameraOpen) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        {/* Camera Header */}
+        <div className="flex items-center justify-between p-4 bg-black/80 text-white">
+          <h3 className="text-lg font-semibold">Take Photo</h3>
+          <button
+            onClick={closeCamera}
+            className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center hover:bg-black/70 transition-colors duration-200"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Camera View */}
+        <div className="flex-1 relative bg-black overflow-hidden">
+          {/* Video Element */}
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+            style={{ 
+              transform: facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)',
+              display: cameraError ? 'none' : 'block'
+            }}
+          />
+          
+          {/* Loading Overlay */}
+          {isVideoLoading && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-20">
+              <div className="text-center">
+                <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                <p className="text-white text-sm">Loading camera...</p>
+              </div>
+            </div>
+          )}
+          
+          {/* Error Overlay */}
+          {cameraError && (
+            <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-20">
+              <div className="text-center max-w-sm mx-auto p-6">
+                <CameraOff className="w-12 h-12 text-red-400 mx-auto mb-4" />
+                <h3 className="text-white text-lg font-semibold mb-2">Camera Error</h3>
+                <p className="text-gray-300 text-sm mb-4">{cameraError}</p>
+                <div className="space-y-2">
+                  <button
+                    onClick={openCamera}
+                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                  >
+                    Try Again
+                  </button>
+                  <button
+                    onClick={closeCamera}
+                    className="w-full px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200"
+                  >
+                    Close Camera
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Camera Controls Overlay */}
+          {!cameraError && (
+            <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 lg:p-8 bg-gradient-to-t from-black/95 via-black/70 to-transparent min-h-[200px] flex flex-col justify-end z-10">
+              <div className="flex items-center justify-center space-x-4 sm:space-x-6 lg:space-x-8 mb-4">
+                {/* Switch Camera Button (only show if multiple cameras) */}
+                {hasMultipleCameras && (
+                  <button
+                    onClick={switchCamera}
+                    disabled={isVideoLoading}
+                    className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full bg-white/30 flex items-center justify-center hover:bg-white/40 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg z-10"
+                    title="Switch Camera"
+                  >
+                    <RotateCcw className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-white" />
+                  </button>
+                )}
+                
+                {/* Capture Button - Made larger and more prominent */}
+                <button
+                  onClick={capturePhoto}
+                  disabled={isVideoLoading || !!cameraError}
+                  className="w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 rounded-full bg-white flex items-center justify-center hover:bg-gray-100 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-2xl border-4 border-white/20 z-10"
+                  title="Capture Photo"
+                >
+                  <div className="w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 rounded-full border-4 border-gray-800 bg-white"></div>
+                </button>
+                
+                {/* Cancel Button - Added for better UX */}
+                <button
+                  onClick={closeCamera}
+                  disabled={isVideoLoading}
+                  className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full bg-white/30 flex items-center justify-center hover:bg-white/40 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg z-10"
+                  title="Cancel"
+                >
+                  <X className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-white" />
+                </button>
+              </div>
+              
+              {/* Instructions Text */}
+              <div className="text-center mb-4">
+                <p className="text-white/90 text-xs sm:text-sm lg:text-base font-medium">Tap the white button to capture photo</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Hidden Canvas for Photo Capture */}
+        <canvas ref={canvasRef} className="hidden" />
+      </div>
+    );
+  }
 
   return (
     <div 
@@ -272,16 +577,37 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
                 Photo <span className="text-red-500">*</span>
               </label>
               
-              {/* File Input */}
+              {/* Photo Upload Buttons - Responsive Layout */}
               <div className="mb-3">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full px-3 py-2.5 border-2 border-dashed border-gray-300 rounded-lg hover:border-[var(--color-accent)] hover:bg-gray-50 transition-all duration-200 cursor-pointer flex items-center justify-center space-x-2"
-                >
-                  <Upload className="w-4 h-4 text-gray-400" />
-                  <span className="text-sm text-gray-600 font-medium">Choose Photo</span>
-                </button>
+                <div className="flex flex-col lg:flex-row gap-3">
+                  {/* File Upload Button */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex-1 px-3 py-2.5 border-2 border-dashed border-gray-300 rounded-lg hover:border-[var(--color-accent)] hover:bg-gray-50 transition-all duration-200 cursor-pointer flex items-center justify-center space-x-2"
+                  >
+                    <Upload className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm text-gray-600 font-medium">Upload Photo</span>
+                  </button>
+                  
+                  {/* Camera Button */}
+                  <button
+                    type="button"
+                    onClick={openCamera}
+                    disabled={isCameraLoading}
+                    className="flex-1 px-3 py-2.5 border-2 border-dashed border-gray-300 rounded-lg hover:border-[var(--color-accent)] hover:bg-gray-50 transition-all duration-200 cursor-pointer flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isCameraLoading ? (
+                      <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Camera className="w-4 h-4 text-gray-400" />
+                    )}
+                    <span className="text-sm text-gray-600 font-medium">
+                      {isCameraLoading ? 'Opening Camera...' : 'Take Photo'}
+                    </span>
+                  </button>
+                </div>
+                
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -297,7 +623,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
                   <img
                     src={photoPreview}
                     alt="Preview"
-                    className="w-full h-40 object-cover rounded-lg border border-gray-200"
+                    className="w-full h-60 object-cover rounded-lg border border-gray-200"
                   />
                   <button
                     type="button"
@@ -314,7 +640,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
                   </button>
                 </div>
               ) : (
-                <div className="w-full h-40 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center bg-gray-50">
+                <div className="w-full h-60 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center bg-gray-50">
                   <FileImage className="w-8 h-8 text-gray-400 mb-1" />
                   <p className="text-xs text-gray-500">Image preview will appear here</p>
                 </div>
