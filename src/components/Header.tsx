@@ -43,11 +43,8 @@ export default function Header({ onReportIssue, onUserProfile }: HeaderProps) {
       <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4">
         {/* Logo Section */}
         <div className="flex items-center space-x-2 sm:space-x-3">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-dark)] rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg">
-            <span className="text-white font-bold text-sm sm:text-lg">G</span>
-          </div>
           <h1 className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-black to-gray-800 bg-clip-text text-transparent">
-            GEOCITY
+            <img src="/geocity.png" alt="Geocity Logo" className="w-full h-10 object-contain" />
           </h1>
         </div>
         
