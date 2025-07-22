@@ -19,6 +19,7 @@ interface RoutePanelProps {
   isOpen: boolean;
   onToggle: () => void;
   onGetDirections?: (origin: string, destination: string, mode: string) => void;
+  onDirectionsRequested?: (origin: string, destination: string) => void;
   mapInstance?: google.maps.Map | null;
   directionsRenderer?: google.maps.DirectionsRenderer | null;
 }
@@ -45,7 +46,7 @@ interface RouteInfo {
   durationValue: number;
 }
 
-export default function RoutePanel({ isOpen, onToggle, onGetDirections, mapInstance, directionsRenderer }: RoutePanelProps) {
+export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirectionsRequested, mapInstance, directionsRenderer }: RoutePanelProps) {
   const [travelMode, setTravelMode] = useState('bicycling');
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
@@ -333,6 +334,11 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, mapInsta
       return;
     }
 
+    // Call the callback to notify parent that directions were requested
+    if (onDirectionsRequested) {
+      onDirectionsRequested(origin, destination);
+    }
+
     setIsLoadingRoute(true);
     setRouteInfo(null);
 
@@ -424,7 +430,7 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, mapInsta
     } finally {
       setIsLoadingRoute(false);
     }
-  }, [origin, destination, travelMode, onGetDirections, showError, travelModes, isGoogleMapsReady, directionsRenderer, geocodeAddress, showSuccess]);
+  }, [origin, destination, travelMode, onGetDirections, showError, travelModes, isGoogleMapsReady, directionsRenderer, geocodeAddress, showSuccess, onDirectionsRequested]);
 
   // Handle travel mode change - no automatic route calculation
   const handleTravelModeChange = useCallback((mode: string) => {

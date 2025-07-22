@@ -485,95 +485,138 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Step 1: Geocode the address to get coordinates and zip code
-    const geocodeResult = await geocodeAddress(address);
-    
-    if (!geocodeResult) {
-      return NextResponse.json({
-        success: false,
-        message: `Could not find location for address: "${address}"`,
-        details: "Please check the address and try again.",
-        timestamp: new Date().toISOString()
-      }, { status: 404 });
+    console.log('Processing weather request for:', address);
+
+    // Geocode the address
+    const geocodingResult = await geocodeAddress(address);
+    if (!geocodingResult) {
+      return NextResponse.json(
+        { error: 'Could not geocode the provided address' },
+        { status: 400 }
+      );
     }
 
-    // Step 2: Fetch data from both sources in parallel
-    const [firebaseData, tomorrowData] = await Promise.all([
-      fetchSensorDataFromFirebase(geocodeResult.lat, geocodeResult.lng, geocodeResult.zipCode),
-      getWeatherData(geocodeResult.lat, geocodeResult.lng)
-    ]);
+    try {
+      // Try to get weather data from Tomorrow.io
+      const weatherData = await getWeatherData(geocodingResult.lat, geocodingResult.lng);
+      
+      // Try to get sensor data from Firebase
+      const sensorData = await fetchSensorDataFromFirebase(
+        geocodingResult.lat, 
+        geocodingResult.lng, 
+        geocodingResult.zipCode
+      );
 
-    // Step 3: Check if we have any data
-    if (!firebaseData && !tomorrowData) {
-      return NextResponse.json({
-        success: false,
-        message: `No weather or environmental data available for: "${geocodeResult.formattedAddress}"`,
-        details: "Neither local sensor data nor weather service data is currently available for this location. Please try again later or contact city services for information about this area.",
-        location: {
-          address: geocodeResult.formattedAddress,
-          coordinates: {
-            latitude: geocodeResult.lat,
-            longitude: geocodeResult.lng
+      // Only proceed if we have real weather data
+      if (!weatherData && !sensorData) {
+        return NextResponse.json(
+          { 
+            error: 'No weather data available',
+            details: 'Unable to fetch weather information for this location.',
+            location: {
+              address: geocodingResult.formattedAddress,
+              coordinates: {
+                latitude: geocodingResult.lat,
+                longitude: geocodingResult.lng,
+              },
+              zipCode: geocodingResult.zipCode,
+            },
+            timestamp: new Date().toISOString()
           },
-          zipCode: geocodeResult.zipCode
+          { status: 404 }
+        );
+      }
+
+      const analysis = await analyzeCombinedData(
+        address,
+        { latitude: geocodingResult.lat, longitude: geocodingResult.lng },
+        geocodingResult.zipCode,
+        sensorData,
+        weatherData
+      );
+
+      const response: EnhancedWeatherResponse = {
+        location: {
+          address: geocodingResult.formattedAddress,
+          coordinates: {
+            latitude: geocodingResult.lat,
+            longitude: geocodingResult.lng,
+          },
+          zipCode: geocodingResult.zipCode,
         },
-        dataSources: {
-          firebase: false,
-          tomorrow: false
+        weather: weatherData!,
+        analysis: analysis!,
+        dataSource: weatherData ? 'Tomorrow.io API' : 'Firebase Sensor Data',
+        timestamp: new Date().toISOString(),
+      };
+
+      return NextResponse.json({
+        success: true,
+        ...response,
+        dataSources: ['Google Maps Geocoding API', weatherData ? 'Tomorrow.io Weather API' : '', sensorData ? 'Firebase Realtime Database' : ''].filter(Boolean),
+        dataAvailability: {
+          firebase: !!sensorData,
+          tomorrow: !!weatherData,
+          total: (sensorData ? 1 : 0) + (weatherData ? 1 : 0)
         },
-        timestamp: new Date().toISOString()
-      }, { status: 404 });
+        sensorData,
+        timestamp: new Date().toISOString(),
+        aiGenerated: !!analysis,
+        models: {
+          geocoding: 'Google Maps Geocoding API',
+          weatherData: weatherData ? 'Tomorrow.io Weather API' : 'Firebase Sensor Data',
+          sensorData: sensorData ? 'Firebase Realtime Database' : 'No Sensor Data',
+          analysis: analysis ? 'Vertex AI Gemini 1.5 Flash' : 'No Analysis'
+        },
+        framework: 'Genkit AI Framework'
+      });
+
+    } catch (aiError) {
+      console.error('AI analysis failed:', aiError);
+      
+      // Check if it's a quota error
+      const isQuotaError = aiError instanceof Error && 
+        (aiError.message.includes('429') || 
+         aiError.message.includes('quota') || 
+         aiError.message.includes('Too Many Requests'));
+      
+      if (isQuotaError) {
+        return NextResponse.json(
+          { 
+            error: 'AI analysis temporarily unavailable',
+            details: 'API quota exceeded. Please try again later or contact support.',
+            location: {
+              address: geocodingResult.formattedAddress,
+              coordinates: {
+                latitude: geocodingResult.lat,
+                longitude: geocodingResult.lng,
+              },
+              zipCode: geocodingResult.zipCode,
+            },
+            timestamp: new Date().toISOString()
+          },
+          { status: 429 }
+        );
+      }
+      
+      // For other AI errors, return a generic error
+      return NextResponse.json(
+        { 
+          error: 'Failed to analyze weather data',
+          details: 'Unable to process weather information at this time.',
+          location: {
+            address: geocodingResult.formattedAddress,
+            coordinates: {
+              latitude: geocodingResult.lat,
+              longitude: geocodingResult.lng,
+            },
+            zipCode: geocodingResult.zipCode,
+          },
+          timestamp: new Date().toISOString()
+        },
+        { status: 500 }
+      );
     }
-
-    // Step 4: Analyze combined data using AI
-    const analysis = await analyzeCombinedData(
-      geocodeResult.formattedAddress,
-      { latitude: geocodeResult.lat, longitude: geocodeResult.lng },
-      geocodeResult.zipCode,
-      firebaseData,
-      tomorrowData
-    );
-
-    // Step 5: Return comprehensive response
-    const response = {
-      success: true,
-      location: {
-        address: geocodeResult.formattedAddress,
-        coordinates: {
-          latitude: geocodeResult.lat,
-          longitude: geocodeResult.lng
-        },
-        zipCode: geocodeResult.zipCode
-      },
-      dataSources: analysis.dataSources,
-      dataAvailability: analysis.dataAvailability,
-      weather: tomorrowData || null,
-      sensorData: firebaseData || null,
-      analysis: {
-        summary: analysis.summary,
-        forecast: analysis.forecast,
-        recommendations: analysis.recommendations,
-        healthAdvisory: analysis.healthAdvisory,
-        environmentalRisk: analysis.environmentalRisk,
-        airQualityCategory: analysis.airQualityCategory,
-        temperatureTrend: analysis.temperatureTrend,
-        precipitationOutlook: analysis.precipitationOutlook,
-        icon: analysis.icon,
-        dataQuality: analysis.dataQuality,
-        insights: analysis.insights
-      },
-      timestamp: new Date().toISOString(),
-      aiGenerated: true,
-      models: {
-        geocoding: 'Google Maps Geocoding API',
-        weatherData: tomorrowData ? 'Tomorrow.io Weather API' : null,
-        sensorData: firebaseData ? 'Firebase Realtime Database' : null,
-        analysis: 'Vertex AI Gemini 1.5 Flash'
-      },
-      framework: 'Genkit AI Framework'
-    };
-
-    return NextResponse.json(response);
 
   } catch (error) {
     console.error('Error in enhanced weather API:', error);

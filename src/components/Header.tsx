@@ -1,6 +1,6 @@
 'use client';
 
-import { Flag, User, LogOut, Settings } from 'lucide-react';
+import { Flag, User, LogOut, Settings, Brain, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
@@ -8,9 +8,11 @@ import Link from 'next/link';
 interface HeaderProps {
   onReportIssue?: () => void;
   onUserProfile?: () => void;
+  onAISuggestions?: () => void;
+  showAISuggestions?: boolean;
 }
 
-export default function Header({ onReportIssue, onUserProfile }: HeaderProps) {
+export default function Header({ onReportIssue, onUserProfile, onAISuggestions, showAISuggestions = false }: HeaderProps) {
   const { user, logout, isAuthenticated } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -50,6 +52,18 @@ export default function Header({ onReportIssue, onUserProfile }: HeaderProps) {
         
         {/* Action Buttons */}
         <div className="flex items-center space-x-2 sm:space-x-4">
+          {/* AI Suggestions Button - Only show after directions are requested */}
+          {showAISuggestions && (
+            <button 
+              onClick={onAISuggestions}
+              className="flex items-center space-x-1 sm:space-x-2 px-2 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-md sm:rounded-lg transition-all duration-200 transform hover:scale-105 shadow-md cursor-pointer text-xs sm:text-sm font-medium"
+            >
+              <Sparkles className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">AI Insights</span>
+              <span className="sm:hidden">AI</span>
+            </button>
+          )}
+          
           <button 
             onClick={onReportIssue}
             className="flex items-center space-x-1 sm:space-x-2 px-2 sm:px-4 py-1.5 sm:py-2 bg-[var(--color-accent)] hover:bg-[var(--color-accent-dark)] text-white rounded-md sm:rounded-lg transition-all duration-200 transform hover:scale-105 shadow-md cursor-pointer text-xs sm:text-sm font-medium"
