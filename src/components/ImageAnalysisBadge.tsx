@@ -164,7 +164,17 @@ export default function ImageAnalysisBadge({ analysis, isLoading = false }: Imag
       </div>
 
       {/* Image Description */}
-      {analysis.description && (
+      {analysis.humanReadableDescription && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <h4 className="text-sm font-medium text-blue-900 mb-1">Incident Report</h4>
+          <p className="text-sm text-blue-800 leading-relaxed">
+            {analysis.humanReadableDescription}
+          </p>
+        </div>
+      )}
+      
+      {/* Fallback to technical description if human-readable is not available */}
+      {!analysis.humanReadableDescription && analysis.description && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <h4 className="text-sm font-medium text-blue-900 mb-1">Image Analysis</h4>
           <p className="text-sm text-blue-800 leading-relaxed">

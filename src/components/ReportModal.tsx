@@ -509,6 +509,12 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
       return;
     }
 
+    // Check if image analysis is complete
+    if (!imageAnalysis && !analysisError) {
+      showError('Image Analysis Required', 'Please wait for image analysis to complete before submitting.');
+      return;
+    }
+
     // Check if image is AI-generated and prevent submission
     if (imageAnalysis && imageAnalysis.authenticity === 'AI_GENERATED') {
       showError('AI Generated Image', 'Please upload a real photo. AI-generated images are not allowed.');
@@ -580,8 +586,15 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
   }, [handleClose]);
 
   // Check if submit button should be disabled
-  const isSubmitDisabled = Boolean(isSubmitting || !photo || !location.trim() || 
-    (imageAnalysis && imageAnalysis.authenticity === 'AI_GENERATED') || (emergency && !emergencyType));
+  const isSubmitDisabled = Boolean(
+    isSubmitting || 
+    !photo || 
+    !location.trim() || 
+    (imageAnalysis && imageAnalysis.authenticity === 'AI_GENERATED') || 
+    (emergency && !emergencyType) ||
+    // Prevent submission until image analysis is complete
+    (photo && !imageAnalysis && !analysisError)
+  );
 
   if (!isOpen) return null;
 
@@ -967,6 +980,8 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
                 ? 'Submitting...' 
                 : imageAnalysis?.authenticity === 'AI_GENERATED'
                 ? 'AI Image Not Allowed'
+                : photo && !imageAnalysis && !analysisError
+                ? 'Analyzing Image...'
                 : emergency 
                 ? 'Submit Emergency Report' 
                 : 'Submit Report'
