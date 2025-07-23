@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { X, Upload, MapPin, Locate, Flag, FileImage, AlertTriangle, Camera, CameraOff, RotateCcw } from 'lucide-react';
+import { X, Upload, MapPin, Locate, Flag, FileImage, AlertTriangle, Camera, CameraOff, RotateCcw, ChevronDown, Ambulance, Shield, Flame, AlertCircle } from 'lucide-react';
 import { useToast } from './Toast';
 import { getDeviceInfo } from '@/lib/deviceInfo';
+import { analyzeReportImageAction } from '@/lib/actions';
+import ImageAnalysisBadge from './ImageAnalysisBadge';
+import { AnalyzeImageOutput } from '@/ai/flows/analyze-report-image-flow';
 
 interface ReportModalProps {
   isOpen: boolean;
@@ -23,6 +26,7 @@ interface ReportData {
   location: string;
   description: string;
   emergency: boolean;
+  emergencyType?: 'MEDICAL' | 'LAW_ENFORCEMENT' | 'FIRE_HAZARD' | 'ENVIRONMENTAL';
   deviceInfo: {
     publicIP: string;
     userAgent: string;
@@ -32,6 +36,8 @@ interface ReportData {
     timestamp: string;
     deviceType: 'mobile' | 'tablet' | 'desktop';
   };
+  // Add AI analysis data
+  imageAnalysis?: AnalyzeImageOutput;
 }
 
 export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: ReportModalProps) {
@@ -40,8 +46,15 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
   const [emergency, setEmergency] = useState(false);
+  const [emergencyType, setEmergencyType] = useState<'MEDICAL' | 'LAW_ENFORCEMENT' | 'FIRE_HAZARD' | 'ENVIRONMENTAL' | ''>('');
+  const [isEmergencyDropdownOpen, setIsEmergencyDropdownOpen] = useState(false);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // AI Analysis states
+  const [imageAnalysis, setImageAnalysis] = useState<AnalyzeImageOutput | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   
   // Camera modal states
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -56,6 +69,116 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { showSuccess, showError, showInfo } = useToast();
+
+  // Emergency type options configuration
+  const emergencyTypeOptions = [
+    {
+      value: 'MEDICAL' as const,
+      label: 'Medical Rescue',
+      icon: Ambulance,
+      description: 'Medical emergencies, injuries, health crises',
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50',
+      borderColor: 'border-blue-200'
+    },
+    {
+      value: 'LAW_ENFORCEMENT' as const,
+      label: 'Law Enforcement',
+      icon: Shield,
+      description: 'Crime, threats, suspicious activity',
+      color: 'text-indigo-600',
+      bgColor: 'bg-indigo-50',
+      borderColor: 'border-indigo-200'
+    },
+    {
+      value: 'FIRE_HAZARD' as const,
+      label: 'Fire & Hazard',
+      icon: Flame,
+      description: 'Fires, gas leaks, building hazards',
+      color: 'text-red-600',
+      bgColor: 'bg-red-50',
+      borderColor: 'border-red-200'
+    },
+    {
+      value: 'ENVIRONMENTAL' as const,
+      label: 'Environmental Hazards',
+      icon: AlertCircle,
+      description: 'Floods, landslides, natural disasters',
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-50',
+      borderColor: 'border-orange-200'
+    }
+  ];
+
+  // Get selected emergency type option
+  const selectedEmergencyType = emergencyTypeOptions.find(option => option.value === emergencyType);
+
+  // Handle emergency type selection
+  const handleEmergencyTypeSelect = useCallback((type: typeof emergencyType) => {
+    setEmergencyType(type);
+    setIsEmergencyDropdownOpen(false);
+  }, []);
+
+  // Handle emergency checkbox change
+  const handleEmergencyChange = useCallback((checked: boolean) => {
+    setEmergency(checked);
+    if (!checked) {
+      setEmergencyType('');
+    }
+  }, []);
+
+  // Handle click outside dropdown
+  const handleClickOutside = useCallback((event: MouseEvent) => {
+    const target = event.target as Element;
+    if (!target.closest('.emergency-dropdown')) {
+      setIsEmergencyDropdownOpen(false);
+    }
+  }, []);
+
+  // Add click outside listener
+  useEffect(() => {
+    if (isEmergencyDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isEmergencyDropdownOpen, handleClickOutside]);
+
+  // Handle image analysis with Vertex AI
+  const handleImageAnalysis = useCallback(async (imageDataUri: string) => {
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setImageAnalysis(null);
+    
+    try {
+      const result = await analyzeReportImageAction(imageDataUri);
+      
+      if (result.error) {
+        setAnalysisError(result.error);
+        showError('Analysis Failed', result.error);
+      } else if (result.data) {
+        setImageAnalysis(result.data);
+        
+        // Show appropriate message based on authenticity
+        if (result.data.authenticity === 'REAL') {
+          showSuccess('Image Verified', 'Real photo detected. Analysis complete.');
+        } else if (result.data.authenticity === 'AI_GENERATED') {
+          showError('AI Generated Image', 'This appears to be an AI-generated image. Please upload a real photo.');
+        } else {
+          showInfo('Image Analysis', 'Image authenticity uncertain. Please ensure it\'s a clear, real photo.');
+        }
+      } else {
+        // This should not happen, but handle it gracefully
+        setAnalysisError('Analysis returned no data. Please try again.');
+        showError('Analysis Error', 'Analysis returned no data. Please try again.');
+      }
+    } catch (error) {
+      console.error('Image analysis error:', error);
+      setAnalysisError('Failed to analyze image. Please try again.');
+      showError('Analysis Error', 'Failed to analyze image. Please try again.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [showSuccess, showError, showInfo]);
 
   // Firebase Studio approach: Simple camera stream start
   const startCameraStream = useCallback(async () => {
@@ -115,7 +238,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     };
   }, [isCameraOpen, facingMode, startCameraStream]);
 
-  // Handle file selection
+  // Handle file selection with AI analysis
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -133,16 +256,20 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
 
       setPhoto(file);
       
-      // Create preview
+      // Create preview and analyze
       const reader = new FileReader();
       reader.onload = (e) => {
-        setPhotoPreview(e.target?.result as string);
+        const dataUri = e.target?.result as string;
+        setPhotoPreview(dataUri);
+        
+        // Start AI analysis
+        handleImageAnalysis(dataUri);
       };
       reader.readAsDataURL(file);
       
-      showSuccess('Photo Selected', 'Photo has been uploaded successfully.');
+      showSuccess('Photo Selected', 'Photo has been uploaded and is being analyzed.');
     }
-  }, [showSuccess, showError]);
+  }, [showSuccess, showError, handleImageAnalysis]);
 
   // Check for multiple cameras
   const checkMultipleCameras = useCallback(async () => {
@@ -215,7 +342,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
   }, []);
 
-  // Capture photo from camera - Firebase Studio approach with HD quality
+  // Capture photo from camera - Firebase Studio approach with HD quality and AI analysis
   const capturePhoto = useCallback(() => {
     if (!videoRef.current) return;
     
@@ -258,10 +385,14 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
       
       setPhoto(file);
       setPhotoPreview(dataUri);
-      showSuccess('HD Photo Captured', 'High-quality photo has been captured successfully.');
+      
+      // Start AI analysis
+      handleImageAnalysis(dataUri);
+      
+      showSuccess('HD Photo Captured', 'High-quality photo has been captured and is being analyzed.');
       closeCamera();
     }
-  }, [closeCamera, showSuccess, showError]);
+  }, [closeCamera, showSuccess, showError, handleImageAnalysis]);
 
   // Handle current location
   const getCurrentLocation = useCallback(async () => {
@@ -378,6 +509,18 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
       return;
     }
 
+    // Check if image is AI-generated and prevent submission
+    if (imageAnalysis && imageAnalysis.authenticity === 'AI_GENERATED') {
+      showError('AI Generated Image', 'Please upload a real photo. AI-generated images are not allowed.');
+      return;
+    }
+
+    // Check if emergency type is selected when emergency is checked
+    if (emergency && !emergencyType) {
+      showError('Emergency Type Required', 'Please select an emergency type for emergency reports.');
+      return;
+    }
+
     setIsSubmitting(true);
     
     try {
@@ -395,7 +538,10 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
         location: location.trim(),
         description: description.trim(),
         emergency,
-        deviceInfo
+        emergencyType: emergencyType || undefined,
+        deviceInfo,
+        // Include AI analysis data
+        imageAnalysis: imageAnalysis || undefined
       };
 
       if (onSubmit) {
@@ -410,7 +556,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     } finally {
       setIsSubmitting(false);
     }
-  }, [photo, location, description, emergency, onSubmit, showSuccess, showError, photoPreview]);
+  }, [photo, location, description, emergency, onSubmit, showSuccess, showError, photoPreview, imageAnalysis, emergencyType]);
 
   // Handle modal close
   const handleClose = useCallback(() => {
@@ -419,6 +565,9 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     setLocation('');
     setDescription('');
     setEmergency(false);
+    setEmergencyType('');
+    setImageAnalysis(null);
+    setAnalysisError(null);
     closeCamera(); // Close camera if open
     onClose();
   }, [onClose, closeCamera]);
@@ -429,6 +578,10 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
       handleClose();
     }
   }, [handleClose]);
+
+  // Check if submit button should be disabled
+  const isSubmitDisabled = Boolean(isSubmitting || !photo || !location.trim() || 
+    (imageAnalysis && imageAnalysis.authenticity === 'AI_GENERATED') || (emergency && !emergencyType));
 
   if (!isOpen) return null;
 
@@ -617,27 +770,46 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
                 />
               </div>
 
-              {/* Photo Preview */}
+              {/* Photo Preview with AI Analysis */}
               {photoPreview ? (
-                <div className="relative">
-                  <img
-                    src={photoPreview}
-                    alt="Preview"
-                    className="w-full h-60 object-cover rounded-lg border border-gray-200"
+                <div className="space-y-3">
+                  <div className="relative">
+                    <img
+                      src={photoPreview}
+                      alt="Preview"
+                      className="w-full h-60 object-cover rounded-lg border border-gray-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhoto(null);
+                        setPhotoPreview(null);
+                        setImageAnalysis(null);
+                        setAnalysisError(null);
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = '';
+                        }
+                      }}
+                      className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors duration-200 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  
+                  {/* AI Analysis Results */}
+                  <ImageAnalysisBadge 
+                    analysis={imageAnalysis} 
+                    isLoading={isAnalyzing} 
                   />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhoto(null);
-                      setPhotoPreview(null);
-                      if (fileInputRef.current) {
-                        fileInputRef.current.value = '';
-                      }
-                    }}
-                    className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors duration-200 cursor-pointer"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                  
+                  {/* Analysis Error */}
+                  {analysisError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <p className="text-sm text-red-800">
+                        {analysisError}
+                      </p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="w-full h-60 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center bg-gray-50">
@@ -678,7 +850,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
                 <input
                   type="checkbox"
                   checked={emergency}
-                  onChange={(e) => setEmergency(e.target.checked)}
+                  onChange={(e) => handleEmergencyChange(e.target.checked)}
                   className="w-4 h-4 text-[var(--color-accent)] bg-gray-100 border-gray-300 rounded focus:ring-[var(--color-accent)] focus:ring-2"
                 />
                 <div className="flex items-center space-x-2">
@@ -692,6 +864,61 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
                 </div>
               </label>
             </div>
+
+            {/* Emergency Type Dropdown */}
+            {emergency && (
+              <div className="relative emergency-dropdown">
+                <label className="block text-xs font-semibold text-gray-900 mb-2">
+                  Emergency Type <span className="text-red-500">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsEmergencyDropdownOpen(!isEmergencyDropdownOpen)}
+                  className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent transition-all duration-200 text-sm flex items-center justify-between ${
+                    selectedEmergencyType 
+                      ? 'border-gray-300 text-gray-900' 
+                      : 'border-red-300 text-gray-500 bg-red-50'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    {selectedEmergencyType && (
+                      <selectedEmergencyType.icon className={`w-4 h-4 ${selectedEmergencyType.color}`} />
+                    )}
+                    <span className={selectedEmergencyType ? 'text-gray-900' : 'text-gray-500'}>
+                      {selectedEmergencyType?.label || 'Select Emergency Type'}
+                    </span>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isEmergencyDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {isEmergencyDropdownOpen && (
+                  <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {emergencyTypeOptions.map((option) => {
+                      const IconComponent = option.icon;
+                      return (
+                        <button
+                          key={option.value}
+                          onClick={() => handleEmergencyTypeSelect(option.value)}
+                          className={`w-full px-3 py-3 text-left hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors duration-150 ${
+                            emergencyType === option.value ? 'bg-gray-50' : ''
+                          }`}
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div className={`w-8 h-8 rounded-lg ${option.bgColor} ${option.borderColor} border flex items-center justify-center`}>
+                              <IconComponent className={`w-4 h-4 ${option.color}`} />
+                            </div>
+                            <div className="flex-1">
+                              <div className="text-sm font-medium text-gray-900">{option.label}</div>
+                              <div className="text-xs text-gray-500">{option.description}</div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Description */}
             <div>
@@ -721,7 +948,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
           <button
             type="submit"
             onClick={handleSubmit}
-            disabled={isSubmitting || !photo || !location.trim()}
+            disabled={isSubmitDisabled}
             className={`px-4 py-2 text-white rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 cursor-pointer flex items-center space-x-2 text-sm ${
               emergency 
                 ? 'bg-red-600 hover:bg-red-700' 
@@ -735,7 +962,16 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
             ) : (
               <Flag className="w-3.5 h-3.5" />
             )}
-            <span>{isSubmitting ? 'Submitting...' : emergency ? 'Submit Emergency Report' : 'Submit Report'}</span>
+            <span>
+              {isSubmitting 
+                ? 'Submitting...' 
+                : imageAnalysis?.authenticity === 'AI_GENERATED'
+                ? 'AI Image Not Allowed'
+                : emergency 
+                ? 'Submit Emergency Report' 
+                : 'Submit Report'
+              }
+            </span>
           </button>
         </div>
       </div>
