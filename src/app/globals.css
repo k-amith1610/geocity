@@ -1,4 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
 @import "tailwindcss";
+
+/* Tailwind Configuration for Outfit Font */
+@theme {
+  --font-family-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-serif: 'Outfit', Georgia, Cambria, 'Times New Roman', Times, serif;
+  --font-family-mono: 'Outfit', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
 
 /* Professional Color Theme System */
 :root {
@@ -29,6 +37,30 @@
   --color-shadow: rgba(74, 85, 104, 0.1); /* Primary color with opacity */
   --color-shadow-dark: rgba(45, 55, 72, 0.2); /* Darker shadow */
 }
+
+/* Global Font Settings */
+* {
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+html, body {
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 400;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Outfit Font Weight Utilities */
+.font-outfit-thin { font-weight: 100; }
+.font-outfit-extralight { font-weight: 200; }
+.font-outfit-light { font-weight: 300; }
+.font-outfit-normal { font-weight: 400; }
+.font-outfit-medium { font-weight: 500; }
+.font-outfit-semibold { font-weight: 600; }
+.font-outfit-bold { font-weight: 700; }
+.font-outfit-extrabold { font-weight: 800; }
+.font-outfit-black { font-weight: 900; }
 
 /* Dark mode support (if needed later) */
 @media (prefers-color-scheme: dark) {
