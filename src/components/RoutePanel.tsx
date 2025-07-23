@@ -20,6 +20,14 @@ interface RoutePanelProps {
   onToggle: () => void;
   onGetDirections?: (origin: string, destination: string, mode: string) => void;
   onDirectionsRequested?: (origin: string, destination: string) => void;
+  onNavigationReady?: (routeInfo: {
+    distance: string;
+    duration: string;
+    durationValue: number;
+    origin: string;
+    destination: string;
+    travelMode: string;
+  }) => void;
   mapInstance?: google.maps.Map | null;
   directionsRenderer?: google.maps.DirectionsRenderer | null;
 }
@@ -44,10 +52,12 @@ interface RouteInfo {
   distance: string;
   duration: string;
   durationValue: number;
+  trafficCondition?: 'normal' | 'medium' | 'heavy';
+  trafficDelay?: number; // delay in minutes
 }
 
-export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirectionsRequested, mapInstance, directionsRenderer }: RoutePanelProps) {
-  const [travelMode, setTravelMode] = useState('bicycling');
+export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirectionsRequested, onNavigationReady, mapInstance, directionsRenderer }: RoutePanelProps) {
+  const [travelMode, setTravelMode] = useState('driving');
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
   const [originSuggestions, setOriginSuggestions] = useState<PlaceSuggestion[]>([]);
@@ -68,34 +78,51 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
 
   // Check if Google Maps API is fully loaded
   const checkGoogleMapsReady = useCallback(() => {
-    return typeof google !== 'undefined' && 
+    const isReady = typeof google !== 'undefined' && 
            google.maps && 
            google.maps.DirectionsService && 
            google.maps.places &&
            google.maps.places.AutocompleteService &&
            google.maps.Geocoder;
+    
+    console.log('Google Maps ready check:', {
+      google: typeof google !== 'undefined',
+      maps: typeof google !== 'undefined' && !!google.maps,
+      directionsService: typeof google !== 'undefined' && google.maps && !!google.maps.DirectionsService,
+      places: typeof google !== 'undefined' && google.maps && !!google.maps.places,
+      autocompleteService: typeof google !== 'undefined' && google.maps && google.maps.places && !!google.maps.places.AutocompleteService,
+      geocoder: typeof google !== 'undefined' && google.maps && !!google.maps.Geocoder,
+      isReady
+    });
+    
+    return isReady;
   }, []);
 
   // Initialize travel modes immediately
   useEffect(() => {
     setTravelModes([
       { id: 'driving', label: 'Driving', icon: Car, googleMode: 'DRIVING' },
-      { id: 'walking', label: 'Walking', icon: WalkingIcon, googleMode: 'WALKING' },
-      { id: 'bicycling', label: 'Bicycling', icon: Bike, googleMode: 'BICYCLING' }
+      { id: 'walking', label: 'Walking', icon: WalkingIcon, googleMode: 'WALKING' }
     ]);
   }, []);
 
   // Initialize Google Maps services when API is fully loaded
   useEffect(() => {
     const initializeGoogleMaps = () => {
+      console.log('Initializing Google Maps services...');
       if (checkGoogleMapsReady()) {
         try {
+          console.log('Creating DirectionsService...');
           directionsServiceRef.current = new google.maps.DirectionsService();
+          console.log('DirectionsService created successfully');
           setIsGoogleMapsReady(true);
+          console.log('Google Maps ready state set to true');
         } catch (error) {
           console.error('Error initializing Google Maps services:', error);
           showError('Google Maps Error', 'Failed to initialize mapping services.');
         }
+      } else {
+        console.log('Google Maps not ready yet, will retry...');
       }
     };
 
@@ -104,8 +131,10 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
 
     // If not ready, check periodically
     if (!isGoogleMapsReady) {
+      console.log('Setting up periodic Google Maps ready check...');
       const interval = setInterval(() => {
         if (checkGoogleMapsReady()) {
+          console.log('Google Maps became ready, initializing...');
           initializeGoogleMaps();
           clearInterval(interval);
         }
@@ -113,6 +142,7 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
 
       // Cleanup interval after 10 seconds
       const timeout = setTimeout(() => {
+        console.log('Google Maps ready check timeout reached');
         clearInterval(interval);
         if (!isGoogleMapsReady) {
           showError('Google Maps Error', 'Failed to load Google Maps services.');
@@ -120,6 +150,7 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
       }, 10000);
 
       return () => {
+        console.log('Cleaning up Google Maps initialization...');
         clearInterval(interval);
         clearTimeout(timeout);
       };
@@ -131,65 +162,178 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
     // Remove automatic route calculation - only calculate when user clicks "Get Directions"
   }, []);
 
+  // Check location permissions
+  const checkLocationPermissions = useCallback(async () => {
+    if (!navigator.permissions) {
+      console.log('Permissions API not supported');
+      return 'unknown';
+    }
+    
+    try {
+      const permission = await navigator.permissions.query({ name: 'geolocation' });
+      console.log('Location permission status:', permission.state);
+      return permission.state;
+    } catch (error) {
+      console.log('Error checking location permissions:', error);
+      return 'unknown';
+    }
+  }, []);
+
   // Get current location
   const getCurrentLocation = useCallback(async () => {
+    console.log('getCurrentLocation called');
+    
     if (!navigator.geolocation) {
+      console.error('Geolocation not supported');
       showError('Geolocation Not Supported', 'Your browser does not support geolocation.');
       return;
     }
 
     if (!isGoogleMapsReady) {
+      console.error('Google Maps not ready');
       showError('Google Maps Not Ready', 'Please wait for Google Maps to load.');
       return;
     }
 
+    // Check permissions first
+    const permissionStatus = await checkLocationPermissions();
+    console.log('Permission status:', permissionStatus);
+    
+    if (permissionStatus === 'denied') {
+      showError('Location Access Denied', 'Please allow location access in your browser settings to use this feature.');
+      return;
+    }
+
+    console.log('Starting location request...');
     setIsGettingLocation(true);
     
     try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        // Suppress console warnings for CoreLocation errors
-        const originalConsoleWarn = console.warn;
-        console.warn = (...args) => {
-          if (args[0] && typeof args[0] === 'string' && args[0].includes('CoreLocation')) {
-            return; // Suppress CoreLocation warnings
-          }
-          originalConsoleWarn.apply(console, args);
-        };
+      console.log('Requesting current location...');
+      
+      // Suppress CoreLocation warnings globally
+      const originalConsoleWarn = console.warn;
+      console.warn = (...args) => {
+        if (args[0] && typeof args[0] === 'string' && 
+            (args[0].includes('CoreLocation') || args[0].includes('kCLErrorLocationUnknown'))) {
+          return; // Suppress CoreLocation warnings
+        }
+        originalConsoleWarn.apply(console, args);
+      };
 
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            console.warn = originalConsoleWarn; // Restore console.warn
-            resolve(pos);
-          },
-          (error) => {
-            console.warn = originalConsoleWarn; // Restore console.warn
-            reject(error);
-          },
-          {
-            enableHighAccuracy: false, // Better compatibility
-            timeout: 25000, // Increased timeout
-            maximumAge: 300000 // 5 minutes cache
-          }
-        );
-      });
+      // Enhanced location request with multiple fallback strategies
+      const getLocationWithFallbacks = (): Promise<GeolocationPosition> => {
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const maxAttempts = 3;
+          
+          const tryGetLocation = (highAccuracy: boolean, timeout: number, maxAge: number) => {
+            attempts++;
+            console.log(`Location attempt ${attempts}/${maxAttempts} - High accuracy: ${highAccuracy}, Timeout: ${timeout}s`);
+            
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                console.log(`Location obtained successfully (attempt ${attempts}):`, pos.coords);
+                console.warn = originalConsoleWarn;
+                resolve(pos);
+              },
+              (error) => {
+                console.log(`Location attempt ${attempts} failed:`, error);
+                console.warn = originalConsoleWarn;
+                
+                // Handle specific error types
+                if (error.code === error.POSITION_UNAVAILABLE) {
+                  console.log('Position unavailable - trying different strategy...');
+                  
+                  if (attempts < maxAttempts) {
+                    // Try with different settings
+                    if (highAccuracy) {
+                      // If high accuracy failed, try low accuracy
+                      setTimeout(() => tryGetLocation(false, 30000, 600000), 1000);
+                    } else {
+                      // If low accuracy failed, try with longer timeout
+                      setTimeout(() => tryGetLocation(false, 60000, 1200000), 2000);
+                    }
+                  } else {
+                    reject(error);
+                  }
+                } else if (error.code === error.TIMEOUT) {
+                  console.log('Location timeout - trying with longer timeout...');
+                  
+                  if (attempts < maxAttempts) {
+                    setTimeout(() => tryGetLocation(highAccuracy, timeout * 2, maxAge), 1000);
+                  } else {
+                    reject(error);
+                  }
+                } else if (error.code === error.PERMISSION_DENIED) {
+                  // Permission denied - can't recover
+                  reject(error);
+                } else {
+                  // Other errors - try again with different settings
+                  if (attempts < maxAttempts) {
+                    setTimeout(() => tryGetLocation(false, 30000, 600000), 1000);
+                  } else {
+                    reject(error);
+                  }
+                }
+              },
+              {
+                enableHighAccuracy: highAccuracy,
+                timeout: timeout,
+                maximumAge: maxAge
+              }
+            );
+          };
+          
+          // Start with high accuracy, short timeout
+          tryGetLocation(true, 10000, 300000);
+        });
+      };
 
+      const position = await getLocationWithFallbacks();
+
+      console.log('Processing location data...');
       const { latitude, longitude } = position.coords;
+      console.log('Coordinates:', { latitude, longitude });
       
       // Reverse geocode to get address
       if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
-        const geocoder = new google.maps.Geocoder();
-        const result = await geocoder.geocode({ location: { lat: latitude, lng: longitude } });
-        
-        if (result.results[0]) {
-          const address = result.results[0].formatted_address;
-          setOrigin(address);
+        try {
+          console.log('Attempting to geocode coordinates...');
+          const geocoder = new google.maps.Geocoder();
+          const result = await geocoder.geocode({ location: { lat: latitude, lng: longitude } });
+          
+          if (result.results && result.results.length > 0) {
+            const address = result.results[0].formatted_address;
+            console.log('Geocoded address:', address);
+            setOrigin(address);
+            setShowOriginSuggestions(false);
+            showSuccess('Location Found', 'Your current location has been set as the starting point.');
+          } else {
+            // If geocoding fails, use coordinates as fallback
+            const coordAddress = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+            console.log('Using coordinates as fallback:', coordAddress);
+            setOrigin(coordAddress);
+            setShowOriginSuggestions(false);
+            showSuccess('Location Found', 'Your current coordinates have been set as the starting point.');
+          }
+        } catch (geocodeError) {
+          console.log('Geocoding failed, using coordinates:', geocodeError);
+          // If geocoding fails, use coordinates as fallback
+          const coordAddress = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+          setOrigin(coordAddress);
           setShowOriginSuggestions(false);
-          showSuccess('Location Found', 'Your current location has been set as the starting point.');
-        } else {
-          showError('Location Error', 'Could not get address for your location. Please enter manually.');
+          showSuccess('Location Found', 'Your current coordinates have been set as the starting point.');
         }
+      } else {
+        console.log('Google Maps not available, using coordinates');
+        // If Google Maps is not available, use coordinates
+        const coordAddress = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+        setOrigin(coordAddress);
+        setShowOriginSuggestions(false);
+        showSuccess('Location Found', 'Your current coordinates have been set as the starting point.');
       }
     } catch (error: any) {
+      console.error('Location error:', error);
       // Handle specific geolocation errors
       let errorMessage = 'Unable to get your current location. Please enter manually.';
       
@@ -214,9 +358,10 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
       
       showError('Location Error', errorMessage);
     } finally {
+      console.log('Location request completed');
       setIsGettingLocation(false);
     }
-  }, [showSuccess, showError, isGoogleMapsReady]);
+  }, [showSuccess, showError, isGoogleMapsReady, checkLocationPermissions]);
 
   // Handle origin input changes
   const handleOriginChange = useCallback((value: string) => {
@@ -328,6 +473,61 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
     }
   }, [isGoogleMapsReady]);
 
+  // Update route colors based on traffic conditions
+  const updateRouteColors = useCallback((result: google.maps.DirectionsResult, directionsRenderer: google.maps.DirectionsRenderer) => {
+    if (!result.routes || result.routes.length === 0) return;
+
+    const route = result.routes[0];
+    const leg = route.legs[0];
+    
+    // Check for traffic information in the route
+    let hasTraffic = false;
+    let trafficLevel = 'normal'; // normal, medium, heavy
+    
+    // Check if there are any traffic warnings or delays
+    if (leg.duration_in_traffic && leg.duration) {
+      const trafficDelay = leg.duration_in_traffic.value - leg.duration.value;
+      const delayMinutes = trafficDelay / 60;
+      
+      if (delayMinutes > 10) {
+        trafficLevel = 'heavy';
+        hasTraffic = true;
+      } else if (delayMinutes > 5) {
+        trafficLevel = 'medium';
+        hasTraffic = true;
+      }
+    }
+
+    // Update polyline colors based on traffic
+    let strokeColor = '#4285F4'; // Default Google Maps blue
+    
+    if (hasTraffic) {
+      switch (trafficLevel) {
+        case 'heavy':
+          strokeColor = '#EA4335'; // Google Maps red for heavy traffic
+          break;
+        case 'medium':
+          strokeColor = '#FBBC04'; // Google Maps yellow for medium traffic
+          break;
+        default:
+          strokeColor = '#4285F4'; // Google Maps blue for normal traffic
+      }
+    }
+
+    // Update the directions renderer with new colors
+    directionsRenderer.setOptions({
+      polylineOptions: {
+        strokeColor,
+        strokeWeight: 5,
+        strokeOpacity: 0.8,
+        zIndex: 1
+      }
+    });
+
+    // Re-render the route with new colors
+    directionsRenderer.setDirections(result);
+  }, []);
+
   // Calculate route - only called when user clicks "Get Directions"
   const calculateRoute = useCallback(async () => {
     if (!origin || !destination || !isGoogleMapsReady || !directionsServiceRef.current || !directionsRenderer) {
@@ -373,11 +573,21 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
 
       // Use a promise-based approach to handle Google Maps errors properly
       const result = await new Promise<google.maps.DirectionsResult>((resolve, reject) => {
-        directionsServiceRef.current!.route({
+        const request: google.maps.DirectionsRequest = {
           origin: originCoords,
           destination: destinationCoords,
           travelMode: googleTravelMode
-        }, (result, status) => {
+        };
+
+        // Add traffic-aware routing for driving mode
+        if (googleTravelMode === google.maps.TravelMode.DRIVING) {
+          request.drivingOptions = {
+            departureTime: new Date(),
+            trafficModel: google.maps.TrafficModel.BEST_GUESS
+          };
+        }
+
+        directionsServiceRef.current!.route(request, (result, status) => {
           if (status === google.maps.DirectionsStatus.OK && result) {
             resolve(result);
           } else {
@@ -390,17 +600,107 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
         const route = result.routes[0];
         const leg = route.legs[0];
         
+        // Calculate traffic conditions
+        let trafficLevel: 'normal' | 'medium' | 'heavy' = 'normal';
+        let hasTraffic = false;
+        
+        if (leg.duration_in_traffic && leg.duration) {
+          const trafficDelay = leg.duration_in_traffic.value - leg.duration.value;
+          const delayMinutes = trafficDelay / 60;
+          
+          if (delayMinutes > 10) {
+            trafficLevel = 'heavy';
+            hasTraffic = true;
+          } else if (delayMinutes > 5) {
+            trafficLevel = 'medium';
+            hasTraffic = true;
+          }
+        }
+        
         setRouteInfo({
           distance: leg.distance?.text || '',
           duration: leg.duration?.text || '',
-          durationValue: leg.duration?.value || 0
+          durationValue: leg.duration?.value || 0,
+          trafficCondition: trafficLevel,
+          trafficDelay: hasTraffic ? Math.round((leg.duration_in_traffic?.value || 0) - (leg.duration?.value || 0)) / 60 : 0
         });
 
         // Display route on map using the shared directions renderer
         directionsRenderer.setDirections(result);
 
+        // Update route colors based on traffic conditions
+        updateRouteColors(result, directionsRenderer);
+
+        // Zoom to fit the entire route when first calculated
+        if (mapInstance) {
+          // Create bounds to fit the entire route
+          const bounds = new google.maps.LatLngBounds();
+          
+          // Add all waypoints to bounds
+          route.legs.forEach(leg => {
+            bounds.extend(leg.start_location);
+            bounds.extend(leg.end_location);
+            
+            // Add intermediate steps to bounds for better fit
+            if (leg.steps) {
+              leg.steps.forEach(step => {
+                bounds.extend(step.start_location);
+                bounds.extend(step.end_location);
+              });
+            }
+          });
+          
+          // Fit map to bounds with padding after a small delay for smooth transition
+          setTimeout(() => {
+            mapInstance.fitBounds(bounds, {
+              top: 100,    // Account for header
+              right: 50,
+              bottom: 200, // Account for navigation bar
+              left: 50
+            });
+            
+            // After fitting bounds, zoom in for better "look straight" view
+            setTimeout(() => {
+              const currentZoom = mapInstance.getZoom();
+              if (currentZoom) {
+                // Zoom in more for better navigation view
+                const targetZoom = Math.min(currentZoom + 1.5, 18); // Slightly less zoom than navigation start
+                mapInstance.setZoom(targetZoom);
+                
+                // Center on the route for better view
+                if (route.legs[0] && route.legs[0].steps && route.legs[0].steps.length > 0) {
+                  const firstStep = route.legs[0].steps[0];
+                  const centerPoint = {
+                    lat: (firstStep.start_location.lat() + firstStep.end_location.lat()) / 2,
+                    lng: (firstStep.start_location.lng() + firstStep.end_location.lng()) / 2
+                  };
+                  mapInstance.panTo(centerPoint);
+                }
+              }
+            }, 600); // Slightly shorter delay for route calculation
+          }, 150);
+        }
+
+        // Clear any existing custom markers and let the directions renderer handle them
+        if (mapInstance) {
+          // The directions renderer will automatically create the proper markers
+          // based on the handleMapLoad configuration
+        }
+
         if (onGetDirections) {
           onGetDirections(origin, destination, travelMode);
+        }
+
+        // Trigger navigation bar
+        if (onNavigationReady) {
+          onNavigationReady({
+            distance: leg.distance?.text || '',
+            duration: leg.duration?.text || '',
+            durationValue: leg.duration?.value || 0,
+            origin,
+            destination,
+            travelMode
+          });
         }
 
         showSuccess('Route Found', `Route calculated: ${leg.distance?.text} in ${leg.duration?.text}`);
@@ -430,7 +730,7 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
     } finally {
       setIsLoadingRoute(false);
     }
-  }, [origin, destination, travelMode, onGetDirections, showError, travelModes, isGoogleMapsReady, directionsRenderer, geocodeAddress, showSuccess, onDirectionsRequested]);
+  }, [origin, destination, travelMode, onGetDirections, showError, travelModes, isGoogleMapsReady, directionsRenderer, geocodeAddress, showSuccess, onDirectionsRequested, onNavigationReady, updateRouteColors, mapInstance]);
 
   // Handle travel mode change - no automatic route calculation
   const handleTravelModeChange = useCallback((mode: string) => {
@@ -482,7 +782,10 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
                 className="w-full px-3 sm:px-4 py-2 sm:py-3 pr-12 bg-white border border-[var(--color-border)] rounded-lg sm:rounded-xl focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent transition-all duration-200 text-sm text-black placeholder-gray-500"
               />
               <button
-                onClick={getCurrentLocation}
+                onClick={() => {
+                  console.log('Current location button clicked');
+                  getCurrentLocation();
+                }}
                 disabled={isGettingLocation || !isGoogleMapsReady}
                 className="absolute right-2 top-1/2 transform -translate-y-1/2 w-8 h-8 bg-white rounded-lg flex items-center justify-center transition-all duration-200 hover:bg-gray-50 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm border border-gray-200"
                 title="Use current location"
@@ -560,7 +863,7 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
           {/* Travel Mode Selection */}
           <div className="mb-4 sm:mb-6">
             <label className="block text-sm font-medium text-black mb-2 sm:mb-3">Travel Mode</label>
-            <div className="grid grid-cols-3 gap-1 sm:gap-2">
+            <div className="grid grid-cols-2 gap-1 sm:gap-2">
               {travelModes.map((mode) => {
                 const IconComponent = mode.icon;
                 return (
@@ -596,6 +899,20 @@ export default function RoutePanel({ isOpen, onToggle, onGetDirections, onDirect
                 <div className="flex items-center space-x-2">
                   <Clock className="w-4 h-4 text-[var(--color-accent)]" />
                   <span className="font-medium text-black">{routeInfo.duration}</span>
+                </div>
+              </div>
+              {/* Traffic Information */}
+              <div className="mt-2 pt-2 border-t border-gray-200">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    routeInfo.trafficCondition === 'heavy' ? 'bg-red-500' :
+                    routeInfo.trafficCondition === 'medium' ? 'bg-yellow-500' : 'bg-green-500'
+                  }`}></div>
+                  <span className="text-xs text-gray-600">
+                    {routeInfo.trafficCondition === 'heavy' ? `Heavy traffic (+${routeInfo.trafficDelay} min delay)` :
+                     routeInfo.trafficCondition === 'medium' ? `Moderate traffic (+${routeInfo.trafficDelay} min delay)` :
+                     'Traffic conditions normal'}
+                  </span>
                 </div>
               </div>
             </div>

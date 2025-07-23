@@ -8,16 +8,19 @@ interface GoogleMapProps {
   zoom?: number;
   onMapLoad?: (map: google.maps.Map) => void;
   directionsRenderer?: google.maps.DirectionsRenderer | null;
+  showTraffic?: boolean;
 }
 
 export default function GoogleMap({ 
   center = { lat: 20.5937, lng: 78.9629 }, // India center
   zoom = 5,
   onMapLoad,
-  directionsRenderer
+  directionsRenderer,
+  showTraffic = false
 }: GoogleMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
   const [isClient, setIsClient] = useState(false);
 
   // Memoize the onMapLoad callback
@@ -33,6 +36,21 @@ export default function GoogleMap({
       directionsRenderer.setMap(mapInstanceRef.current);
     }
   }, [directionsRenderer]);
+
+  // Manage traffic layer visibility
+  useEffect(() => {
+    if (mapInstanceRef.current) {
+      if (showTraffic && !trafficLayerRef.current) {
+        // Create traffic layer if it doesn't exist
+        trafficLayerRef.current = new google.maps.TrafficLayer();
+        trafficLayerRef.current.setMap(mapInstanceRef.current);
+      } else if (!showTraffic && trafficLayerRef.current) {
+        // Remove traffic layer if it exists
+        trafficLayerRef.current.setMap(null);
+        trafficLayerRef.current = null;
+      }
+    }
+  }, [showTraffic]);
 
   // Handle client-side rendering to prevent hydration issues
   useEffect(() => {
@@ -57,7 +75,7 @@ export default function GoogleMap({
       const loader = new Loader({
         apiKey,
         version: 'weekly',
-        libraries: ['places', 'marker'] // Added marker library
+        libraries: ['places', 'marker', 'geometry'] // Added geometry library
       });
 
       try {
@@ -110,6 +128,12 @@ export default function GoogleMap({
               scale: 1.2
             }).element
           });
+
+          // Initialize traffic layer if requested
+          if (showTraffic) {
+            trafficLayerRef.current = new google.maps.TrafficLayer();
+            trafficLayerRef.current.setMap(map);
+          }
 
           // Add custom CSS for map type controls only once
           if (!document.querySelector('#geocity-map-styles')) {
@@ -174,7 +198,7 @@ export default function GoogleMap({
     };
 
     initMap();
-  }, [center, zoom, handleMapLoad, isClient]);
+  }, [center, zoom, handleMapLoad, isClient, showTraffic]);
 
   return (
     <div 

@@ -6,6 +6,7 @@ import RoutePanel from '@/components/RoutePanel';
 import GoogleMap from '@/components/GoogleMap';
 import ReportModal from '@/components/ReportModal';
 import AISuggestionsModal from '@/components/AISuggestionsModal';
+import NavigationBar from '@/components/NavigationBar';
 import { ToastContainer, useToast } from '@/components/Toast';
 import CyberLoader from '@/components/CyberLoader';
 import { useAuth } from '@/contexts/AuthContext';
@@ -47,6 +48,19 @@ export default function Home() {
   const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
   const [directionsRenderer, setDirectionsRenderer] = useState<google.maps.DirectionsRenderer | null>(null);
   
+  // Navigation state
+  const [isNavigationBarVisible, setIsNavigationBarVisible] = useState(false);
+  const [navigationRouteInfo, setNavigationRouteInfo] = useState<{
+    distance: string;
+    duration: string;
+    durationValue: number;
+    origin: string;
+    destination: string;
+    travelMode: string;
+  } | null>(null);
+  const [showTraffic, setShowTraffic] = useState(false);
+  const [currentLocationMarker, setCurrentLocationMarker] = useState<google.maps.Marker | null>(null);
+  
   // AI Suggestions state
   const [showAISuggestionsButton, setShowAISuggestionsButton] = useState(false);
   const [currentRoute, setCurrentRoute] = useState<{ origin: string; destination: string } | null>(null);
@@ -60,6 +74,22 @@ export default function Home() {
   
   const { toasts, removeToast, showSuccess, showError } = useToast();
   const { user, isAuthenticated } = useAuth();
+
+  // Suppress CoreLocation warnings globally
+  useEffect(() => {
+    const originalConsoleWarn = console.warn;
+    console.warn = (...args) => {
+      if (args[0] && typeof args[0] === 'string' && 
+          (args[0].includes('CoreLocation') || args[0].includes('kCLErrorLocationUnknown'))) {
+        return; // Suppress CoreLocation warnings
+      }
+      originalConsoleWarn.apply(console, args);
+    };
+
+    return () => {
+      console.warn = originalConsoleWarn;
+    };
+  }, []);
 
   const handleLoaderComplete = () => {
     setShowLoader(false);
@@ -78,6 +108,342 @@ export default function Home() {
     console.log('Get Directions:', { origin, destination, mode });
     // Add your directions logic here
   };
+
+  // Navigation handlers
+  const handleNavigationReady = useCallback((routeInfo: {
+    distance: string;
+    duration: string;
+    durationValue: number;
+    origin: string;
+    destination: string;
+    travelMode: string;
+  }) => {
+    setNavigationRouteInfo(routeInfo);
+    setIsNavigationBarVisible(true);
+  }, []);
+
+  const handleStartNavigation = useCallback(() => {
+    console.log('Navigation started');
+    setShowTraffic(true);
+    
+    // Zoom to fit the entire route when starting navigation
+    if (mapInstance && directionsRenderer) {
+      const result = directionsRenderer.getDirections();
+      if (result && result.routes && result.routes.length > 0) {
+        const route = result.routes[0];
+        
+        // Create bounds to fit the entire route
+        const bounds = new google.maps.LatLngBounds();
+        
+        // Add all waypoints to bounds
+        route.legs.forEach(leg => {
+          bounds.extend(leg.start_location);
+          bounds.extend(leg.end_location);
+          
+          // Add intermediate steps to bounds for better fit
+          if (leg.steps) {
+            leg.steps.forEach(step => {
+              bounds.extend(step.start_location);
+              bounds.extend(step.end_location);
+            });
+          }
+        });
+        
+        // Fit map to bounds with padding after a small delay for smooth transition
+        setTimeout(() => {
+          mapInstance.fitBounds(bounds, {
+            top: 100,    // Account for header
+            right: 50,
+            bottom: 200, // Account for navigation bar
+            left: 50
+          });
+          
+          // After fitting bounds, zoom in for "look straight" view like Google Maps
+          setTimeout(() => {
+            const currentZoom = mapInstance.getZoom();
+            if (currentZoom) {
+              // Zoom in more for better "look straight" view
+              const targetZoom = Math.min(currentZoom + 2, 19); // Max zoom 19 for street level
+              mapInstance.setZoom(targetZoom);
+              
+              // Center on the route for better navigation view
+              if (route.legs[0] && route.legs[0].steps && route.legs[0].steps.length > 0) {
+                const firstStep = route.legs[0].steps[0];
+                const centerPoint = {
+                  lat: (firstStep.start_location.lat() + firstStep.end_location.lat()) / 2,
+                  lng: (firstStep.start_location.lng() + firstStep.end_location.lng()) / 2
+                };
+                mapInstance.panTo(centerPoint);
+              }
+            }
+          }, 800); // Longer delay for smoother transition
+        }, 200);
+        
+        // Calculate initial heading from first step
+        if (route.legs[0] && route.legs[0].steps && route.legs[0].steps.length > 0) {
+          const firstStep = route.legs[0].steps[0];
+          const heading = google.maps.geometry.spherical.computeHeading(
+            firstStep.start_location,
+            firstStep.end_location
+          );
+          
+          // Create professional navigation arrow for initial position
+          const createNavigationArrow = (heading: number) => {
+            return {
+              url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <!-- Outer glow/shadow -->
+                  <defs>
+                    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+                      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.3)"/>
+                    </filter>
+                    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                      <feMerge> 
+                        <feMergeNode in="coloredBlur"/>
+                        <feMergeNode in="SourceGraphic"/>
+                      </feMerge>
+                    </filter>
+                  </defs>
+                  
+                  <!-- Main circle with gradient -->
+                  <circle cx="24" cy="24" r="20" fill="url(#gradient)" stroke="white" stroke-width="2" filter="url(#shadow)"/>
+                  
+                  <!-- Gradient definition -->
+                  <defs>
+                    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" style="stop-color:#4285F4;stop-opacity:1" />
+                      <stop offset="100%" style="stop-color:#3367D6;stop-opacity:1" />
+                    </linearGradient>
+                  </defs>
+                  
+                  <!-- Custom Navigation Arrow (Flaticon style) -->
+                  <g transform="rotate(${heading} 24 24)">
+                    <!-- Arrow body -->
+                    <path d="M24 8L24 36" stroke="white" stroke-width="4" stroke-linecap="round"/>
+                    <!-- Arrow head (pointing up) -->
+                    <path d="M24 8L30 14M24 8L18 14" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                    <!-- Center dot -->
+                    <circle cx="24" cy="24" r="4" fill="white"/>
+                    <!-- Additional arrow details for better visibility -->
+                    <path d="M24 12L24 32" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+                  </g>
+                  
+                  <!-- Pulse animation for active navigation -->
+                  <circle cx="24" cy="24" r="22" stroke="#4285F4" stroke-width="1" fill="none" opacity="0.6">
+                    <animate attributeName="r" values="22;26;22" dur="2s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity" values="0.6;0;0.6" dur="2s" repeatCount="indefinite"/>
+                  </circle>
+                </svg>
+              `),
+              scaledSize: new google.maps.Size(48, 48),
+              anchor: new google.maps.Point(24, 24)
+            };
+          };
+          
+          // Update the current location marker with the calculated heading
+          if (currentLocationMarker) {
+            currentLocationMarker.setIcon(createNavigationArrow(heading));
+          }
+        }
+      }
+    }
+    
+    // Additional navigation start logic can be added here
+  }, [mapInstance, directionsRenderer, currentLocationMarker]);
+
+  const handleStopNavigation = useCallback(() => {
+    console.log('Navigation stopped');
+    setShowTraffic(false);
+    
+    // Remove location marker
+    if (currentLocationMarker) {
+      currentLocationMarker.setMap(null);
+      setCurrentLocationMarker(null);
+    }
+    
+    // Additional navigation stop logic can be added here
+  }, [currentLocationMarker]);
+
+  const handleCloseNavigation = useCallback(() => {
+    setIsNavigationBarVisible(false);
+    setNavigationRouteInfo(null);
+    setShowTraffic(false);
+    
+    // Remove location marker
+    if (currentLocationMarker) {
+      currentLocationMarker.setMap(null);
+      setCurrentLocationMarker(null);
+    }
+  }, [currentLocationMarker]);
+
+  // Handle location updates during navigation
+  const handleLocationUpdate = useCallback((location: { lat: number; lng: number; heading?: number }) => {
+    if (!mapInstance) return;
+
+    // Remove existing marker if it exists
+    if (currentLocationMarker) {
+      currentLocationMarker.setMap(null);
+    }
+
+    // Calculate heading based on route direction if available
+    let calculatedHeading = location.heading || 0;
+    let isNearDestination = false;
+    
+    if (directionsRenderer) {
+      const result = directionsRenderer.getDirections();
+      if (result && result.routes && result.routes.length > 0) {
+        const route = result.routes[0];
+        const leg = route.legs[0];
+        
+        // Check if we're near destination (within 50 meters)
+        const distanceToDestination = google.maps.geometry.spherical.computeDistanceBetween(
+          new google.maps.LatLng(location.lat, location.lng),
+          leg.end_location
+        );
+        
+        if (distanceToDestination <= 50) {
+          isNearDestination = true;
+          // Show destination reached notification
+          if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance('You have arrived at your destination');
+            utterance.rate = 0.9;
+            utterance.pitch = 1.0;
+            utterance.volume = 0.8;
+            speechSynthesis.speak(utterance);
+          }
+        }
+        
+        if (leg.steps && leg.steps.length > 0) {
+          // Find the nearest step to current location
+          let nearestStep = leg.steps[0];
+          let minDistance = Infinity;
+          
+          leg.steps.forEach(step => {
+            const stepDistance = google.maps.geometry.spherical.computeDistanceBetween(
+              new google.maps.LatLng(location.lat, location.lng),
+              step.start_location
+            );
+            
+            if (stepDistance < minDistance) {
+              minDistance = stepDistance;
+              nearestStep = step;
+            }
+          });
+          
+          // Calculate heading from the nearest step (corrected calculation)
+          calculatedHeading = google.maps.geometry.spherical.computeHeading(
+            nearestStep.start_location,
+            nearestStep.end_location
+          );
+        }
+      }
+    }
+
+    // Create professional Google Maps style navigation arrow
+    const createNavigationArrow = (heading: number) => {
+      return {
+        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Outer glow/shadow -->
+            <defs>
+              <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+                <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.3)"/>
+              </filter>
+              <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                <feMerge> 
+                  <feMergeNode in="coloredBlur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
+            
+            <!-- Main circle with gradient -->
+            <circle cx="24" cy="24" r="20" fill="url(#gradient)" stroke="white" stroke-width="2" filter="url(#shadow)"/>
+            
+            <!-- Gradient definition -->
+            <defs>
+              <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#4285F4;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#3367D6;stop-opacity:1" />
+              </linearGradient>
+            </defs>
+            
+            <!-- Custom Navigation Arrow (Flaticon style) -->
+            <g transform="rotate(${heading} 24 24)">
+              <!-- Arrow body -->
+              <path d="M24 8L24 36" stroke="white" stroke-width="4" stroke-linecap="round"/>
+              <!-- Arrow head (pointing up) -->
+              <path d="M24 8L30 14M24 8L18 14" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              <!-- Center dot -->
+              <circle cx="24" cy="24" r="4" fill="white"/>
+              <!-- Additional arrow details for better visibility -->
+              <path d="M24 12L24 32" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+            </g>
+            
+            <!-- Pulse animation for active navigation -->
+            <circle cx="24" cy="24" r="22" stroke="#4285F4" stroke-width="1" fill="none" opacity="0.6">
+              <animate attributeName="r" values="22;26;22" dur="2s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.6;0;0.6" dur="2s" repeatCount="indefinite"/>
+            </circle>
+          </svg>
+        `),
+        scaledSize: new google.maps.Size(48, 48),
+        anchor: new google.maps.Point(24, 24)
+      };
+    };
+
+    // Create new location marker with professional Google Maps style navigation arrow
+    const marker = new google.maps.Marker({
+      position: { lat: location.lat, lng: location.lng },
+      map: mapInstance,
+      icon: createNavigationArrow(calculatedHeading),
+      title: isNearDestination ? 'You have arrived!' : 'Your Location',
+      zIndex: 1000
+    });
+
+    setCurrentLocationMarker(marker);
+    
+    // Debug logging for marker updates
+    console.log('Marker Updated:', {
+      position: { lat: location.lat.toFixed(6), lng: location.lng.toFixed(6) },
+      heading: calculatedHeading.toFixed(1),
+      isNearDestination,
+      timestamp: new Date().toLocaleTimeString()
+    });
+
+    // Center map on user location during navigation (but not when near destination)
+    if (!isNearDestination) {
+      // Smooth pan to user location with Google Maps style behavior
+      const currentCenter = mapInstance.getCenter();
+      if (currentCenter) {
+        const currentLat = currentCenter.lat();
+        const currentLng = currentCenter.lng();
+        const targetLat = location.lat;
+        const targetLng = location.lng;
+        
+        // Calculate distance to determine if we need to pan
+        const distance = google.maps.geometry.spherical.computeDistanceBetween(
+          new google.maps.LatLng(currentLat, currentLng),
+          new google.maps.LatLng(targetLat, targetLng)
+        );
+        
+        // Only pan if user has moved significantly (more than 50 meters)
+        if (distance > 50) {
+          // Smooth pan with easing
+          mapInstance.panTo({ lat: targetLat, lng: targetLng });
+          
+          // Adjust zoom level for better navigation view
+          const currentZoom = mapInstance.getZoom();
+          if (currentZoom && currentZoom < 16) {
+            // Gradually zoom in for better navigation view
+            mapInstance.setZoom(Math.min(currentZoom + 0.5, 18));
+          }
+        }
+      }
+    }
+  }, [mapInstance, currentLocationMarker, directionsRenderer]);
 
   // Handle when directions are requested - start background API calls
   const handleDirectionsRequested = useCallback(async (origin: string, destination: string) => {
@@ -239,16 +605,64 @@ export default function Home() {
     console.log('Map loaded successfully');
     setMapInstance(map);
     
-    // Initialize directions renderer
+    // Initialize directions renderer with Google Maps-style colors and markers
     if (typeof google !== 'undefined' && google.maps) {
       const renderer = new google.maps.DirectionsRenderer({
-        suppressMarkers: true,
+        suppressMarkers: true, // Suppress default markers to use custom ones
         polylineOptions: {
-          strokeColor: '#556B2F',
-          strokeWeight: 4,
-          strokeOpacity: 0.8
+          strokeColor: '#4285F4', // Google Maps blue
+          strokeWeight: 5,
+          strokeOpacity: 0.8,
+          zIndex: 1
         }
       });
+      
+      // Override the default markers with custom ones
+      renderer.addListener('directions_changed', () => {
+        const result = renderer.getDirections();
+        if (result && result.routes && result.routes.length > 0) {
+          const route = result.routes[0];
+          const leg = route.legs[0];
+          
+          // Clear existing markers
+          if (renderer.getMap()) {
+            // Create custom start marker (blue circle with direction indicator - Google Maps style)
+            const startMarker = new google.maps.Marker({
+              position: leg.start_location,
+              map: renderer.getMap(),
+              icon: {
+                url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="12" r="10" fill="#4285F4" stroke="white" stroke-width="2"/>
+                    <circle cx="12" cy="12" r="3" fill="white"/>
+                  </svg>
+                `),
+                scaledSize: new google.maps.Size(24, 24),
+                anchor: new google.maps.Point(12, 12)
+              },
+              title: 'Start Location'
+            });
+            
+            // Create custom destination marker (clean red pin without arrow - Google Maps style)
+            const destMarker = new google.maps.Marker({
+              position: leg.end_location,
+              map: renderer.getMap(),
+              icon: {
+                url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#EA4335" stroke="white" stroke-width="1"/>
+                    <circle cx="12" cy="9" r="2.5" fill="white"/>
+                  </svg>
+                `),
+                scaledSize: new google.maps.Size(24, 24),
+                anchor: new google.maps.Point(12, 24)
+              },
+              title: 'Destination'
+            });
+          }
+        }
+      });
+      
       renderer.setMap(map);
       setDirectionsRenderer(renderer);
     }
@@ -265,6 +679,7 @@ export default function Home() {
       <GoogleMap 
         onMapLoad={handleMapLoad}
         directionsRenderer={directionsRenderer}
+        showTraffic={showTraffic}
       />
       
       {/* Header Component */}
@@ -281,6 +696,7 @@ export default function Home() {
         onToggle={() => setIsRoutePanelOpen(!isRoutePanelOpen)}
         onGetDirections={handleGetDirections}
         onDirectionsRequested={handleDirectionsRequested}
+        onNavigationReady={handleNavigationReady}
         mapInstance={mapInstance}
         directionsRenderer={directionsRenderer}
       />
@@ -309,6 +725,17 @@ export default function Home() {
 
       {/* Toast Container */}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+      {/* Navigation Bar */}
+      <NavigationBar
+        isVisible={isNavigationBarVisible}
+        routeInfo={navigationRouteInfo}
+        onStartNavigation={handleStartNavigation}
+        onStopNavigation={handleStopNavigation}
+        onClose={handleCloseNavigation}
+        onLocationUpdate={handleLocationUpdate}
+        directionsRenderer={directionsRenderer}
+      />
     </div>
   );
 }
