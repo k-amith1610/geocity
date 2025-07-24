@@ -38,6 +38,8 @@ interface ReportData {
   };
   // Add AI analysis data
   imageAnalysis?: AnalyzeImageOutput;
+  // Add expiration time in hours
+  expirationHours?: number;
 }
 
 export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: ReportModalProps) {
@@ -113,6 +115,18 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
   // Get selected emergency type option
   const selectedEmergencyType = emergencyTypeOptions.find(option => option.value === emergencyType);
 
+  // Calculate expiration hours based on emergency level
+  const calculateExpirationHours = (emergencyLevel: string): number => {
+    switch (emergencyLevel) {
+      case 'CRITICAL': return 4;  // 4 hours - maximum visibility for critical issues
+      case 'HIGH': return 2;      // 2 hours - significant attention needed
+      case 'MEDIUM': return 1;    // 1 hour - moderate attention needed
+      case 'LOW': return 8;       // 8 hours - general awareness
+      case 'NONE': return 10;     // 10 hours - safe issues can stay longest
+      default: return 10;
+    }
+  };
+
   // Handle emergency type selection
   const handleEmergencyTypeSelect = useCallback((type: typeof emergencyType) => {
     setEmergencyType(type);
@@ -158,9 +172,12 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
       } else if (result.data) {
         setImageAnalysis(result.data);
         
+        // Calculate expiration hours based on emergency level
+        const expirationHours = calculateExpirationHours(result.data.emergencyLevel);
+        
         // Show appropriate message based on authenticity
         if (result.data.authenticity === 'REAL') {
-          showSuccess('Image Verified', 'Real photo detected. Analysis complete.');
+          showSuccess('Image Verified', `Real photo detected. Analysis complete. Report will be visible for ${expirationHours} hours.`);
         } else if (result.data.authenticity === 'AI_GENERATED') {
           showError('AI Generated Image', 'This appears to be an AI-generated image. Please upload a real photo.');
         } else {
@@ -178,7 +195,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     } finally {
       setIsAnalyzing(false);
     }
-  }, [showSuccess, showError, showInfo]);
+  }, [showSuccess, showError, showInfo, calculateExpirationHours]);
 
   // Firebase Studio approach: Simple camera stream start
   const startCameraStream = useCallback(async () => {
@@ -547,7 +564,9 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
         emergencyType: emergencyType || undefined,
         deviceInfo,
         // Include AI analysis data
-        imageAnalysis: imageAnalysis || undefined
+        imageAnalysis: imageAnalysis || undefined,
+        // Include expiration hours based on AI analysis
+        expirationHours: imageAnalysis ? calculateExpirationHours(imageAnalysis.emergencyLevel) : undefined
       };
 
       if (onSubmit) {
