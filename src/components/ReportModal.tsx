@@ -7,6 +7,7 @@ import { getDeviceInfo } from '@/lib/deviceInfo';
 import { analyzeReportImageAction } from '@/lib/actions';
 import ImageAnalysisBadge from './ImageAnalysisBadge';
 import { AnalyzeImageOutput } from '@/ai/flows/analyze-report-image-flow';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ReportModalProps {
   isOpen: boolean;
@@ -21,11 +22,11 @@ interface ReportData {
     name: string;
     size: number;
     type: string;
-    lastModified: number;
+    lastModified: string; // Changed from number to string with date/time format
   };
   location: string;
   description: string;
-  emergency: boolean;
+  isEmergency: boolean; // Changed from emergency to isEmergency
   emergencyType?: 'MEDICAL' | 'LAW_ENFORCEMENT' | 'FIRE_HAZARD' | 'ENVIRONMENTAL';
   deviceInfo: {
     publicIP: string;
@@ -33,13 +34,15 @@ interface ReportData {
     screenResolution: string;
     timezone: string;
     language: string;
-    timestamp: string;
+    timestamp: any; // Changed to any for Firebase timestamp
     deviceType: 'mobile' | 'tablet' | 'desktop';
   };
   // Add AI analysis data
   imageAnalysis?: AnalyzeImageOutput;
   // Add expiration time in hours
   expirationHours?: number;
+  // Add user ID (empty string if not logged in)
+  userId: string;
 }
 
 export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: ReportModalProps) {
@@ -71,6 +74,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { showSuccess, showError, showInfo } = useToast();
+  const { user, isAuthenticated } = useAuth();
 
   // Emergency type options configuration
   const emergencyTypeOptions = [
@@ -550,23 +554,40 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
       // Get device information for fraud prevention
       const deviceInfo = await getDeviceInfo();
       
+      // Format lastModified as date/time string
+      const lastModifiedDate = new Date(photo.lastModified);
+      const lastModifiedString = lastModifiedDate.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZoneName: 'short'
+      });
+      
       const reportData: ReportData = {
         photo: photoPreview || '', // Use photoPreview for base64
         photoDetails: {
           name: photo.name,
           size: photo.size,
           type: photo.type,
-          lastModified: photo.lastModified,
+          lastModified: lastModifiedString, // Format as date/time string
         },
         location: location.trim(),
         description: description.trim(),
-        emergency,
+        isEmergency: emergency,
         emergencyType: emergencyType || undefined,
-        deviceInfo,
+        deviceInfo: {
+          ...deviceInfo,
+          timestamp: new Date() // Use Firebase timestamp format
+        },
         // Include AI analysis data
         imageAnalysis: imageAnalysis || undefined,
         // Include expiration hours based on AI analysis
-        expirationHours: imageAnalysis ? calculateExpirationHours(imageAnalysis.emergencyLevel) : undefined
+        expirationHours: imageAnalysis ? calculateExpirationHours(imageAnalysis.emergencyLevel) : undefined,
+        // Add user ID (empty string if not logged in)
+        userId: isAuthenticated && user ? user.uid : ''
       };
 
       if (onSubmit) {
@@ -581,7 +602,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     } finally {
       setIsSubmitting(false);
     }
-  }, [photo, location, description, emergency, onSubmit, showSuccess, showError, photoPreview, imageAnalysis, emergencyType]);
+  }, [photo, location, description, emergency, onSubmit, showSuccess, showError, photoPreview, imageAnalysis, emergencyType, isAuthenticated, user]);
 
   // Handle modal close
   const handleClose = useCallback(() => {
