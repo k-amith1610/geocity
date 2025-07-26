@@ -15,6 +15,11 @@ export interface Report {
     user_id: string;
   };
   location: string;
+  coordinates?: {
+    lat: number;
+    lng: number;
+    address: string;
+  };
   description: string;
   isEmergency: boolean;
   emergencyType?: 'MEDICAL' | 'LAW_ENFORCEMENT' | 'FIRE_HAZARD' | 'ENVIRONMENTAL';

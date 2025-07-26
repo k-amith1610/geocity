@@ -1,9 +1,9 @@
 // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
+import { initializeApp, FirebaseApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
-import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
-import { getDatabase } from "firebase/database";
+import { getFirestore, Firestore } from "firebase/firestore";
+import { getAuth, Auth } from "firebase/auth";
+import { getDatabase, Database } from "firebase/database";
 
 // Configure SSL for development if needed
 if (process.env.NODE_ENV === 'development') {
@@ -26,10 +26,10 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-let app;
-let db;
-let auth;
-let realtimeDb;
+let app: FirebaseApp;
+let db: Firestore;
+let auth: Auth;
+let realtimeDb: Database;
 
 try {
   // Validate Firebase config

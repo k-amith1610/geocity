@@ -21,6 +21,7 @@ import { useReportsRealtime, Report } from '@/hooks/useReportsRealtime';
 import { ReportMapMarkers } from '@/components/ReportMapMarkers';
 import { ReportDetailsModal } from '@/components/ReportDetailsModal';
 import { useAutoExpiration } from '@/hooks/useAutoExpiration';
+import MigrationButton from '@/components/MigrationButton';
 import { useSocket } from '@/hooks/useSocket';
 import { useSoundAlerts } from '@/hooks/useSoundAlerts';
 import { useAutoCleanup } from '@/hooks/useAutoCleanup';
@@ -108,49 +109,44 @@ export default function Home() {
     setIsReportDetailsOpen(true);
   }, []);
 
-  // WebSocket event handlers
+  // WebSocket event handlers for real-time updates
   useEffect(() => {
     if (!socket) return;
 
     const handleReportsUpdated = (data: any) => {
-      console.log('WebSocket event received:', data);
+      console.log('🔔 WebSocket event received:', data);
       
       if (data.type === 'new-report') {
         // Play sound based on emergency status
         if (data.report?.isEmergency) {
           playEmergencyAlert();
-          showSuccess('Emergency Report', 'A new emergency report has been submitted in your area!');
+          showSuccess('🚨 Emergency Report', 'A new emergency report has been submitted in your area!');
         } else {
           playNotificationSound();
-          showSuccess('New Report', 'A new report has been submitted in your area!');
+          showSuccess('📝 New Report', 'A new report has been submitted in your area!');
         }
         
-        // Force refresh of reports to get the latest data
-        console.log('Triggering reports refresh after new report');
-        console.log('Current reports count before refresh:', reports.length);
-        forceRefresh(); // Immediate refresh
+        // Single immediate refresh - the Firestore listener should handle real-time updates
+        console.log('🔄 Triggering immediate reports refresh after new report');
+        forceRefresh();
         
-        // Multiple refresh attempts to ensure we get the data
+        // Additional refresh after a short delay to ensure data consistency
         setTimeout(() => {
-          console.log('First delayed refresh...');
+          console.log('🔄 Delayed refresh for data consistency...');
           forceRefresh();
-        }, 1000);
+        }, 2000);
         
-        setTimeout(() => {
-          console.log('Second delayed refresh...');
-          forceRefresh();
-        }, 3000);
-        
-        setTimeout(() => {
-          console.log('Third delayed refresh...');
-          forceRefresh();
-        }, 5000);
       } else if (data.type === 'report-expired') {
-        showInfo('Report Expired', 'A report has expired and been removed from the map.');
+        showInfo('⏰ Report Expired', 'A report has expired and been removed from the map.');
         
         // Force refresh of reports after expiration
-        console.log('Triggering reports refresh after report expired');
-        forceRefresh(); // Immediate refresh
+        console.log('🔄 Triggering reports refresh after report expired');
+        forceRefresh();
+        
+      } else if (data.type === 'reports-list') {
+        // Handle bulk reports update if needed
+        console.log('📋 Received bulk reports update:', data.reports?.length || 0, 'reports');
+        // The Firestore listener should handle this automatically
       }
     };
 
@@ -159,7 +155,7 @@ export default function Home() {
     return () => {
       off('reports-updated', handleReportsUpdated);
     };
-  }, [socket, on, off, showSuccess, showInfo, forceRefresh]);
+  }, [socket, on, off, showSuccess, showInfo, forceRefresh, playEmergencyAlert, playNotificationSound]);
 
   // Suppress CoreLocation warnings globally
   useEffect(() => {
@@ -844,6 +840,11 @@ export default function Home() {
         onLocationUpdate={handleLocationUpdate}
         directionsRenderer={directionsRenderer}
       />
+
+      {/* Migration Button (for testing) */}
+      {process.env.NODE_ENV === 'development' && (
+        <MigrationButton />
+      )}
     </div>
   );
 }

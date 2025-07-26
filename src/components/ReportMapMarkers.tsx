@@ -21,17 +21,7 @@ interface LocationCluster {
 
 export function ReportMapMarkers({ reports, mapInstance, onReportClick }: ReportMapMarkersProps) {
   const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
-  const [geocoder, setGeocoder] = useState<google.maps.Geocoder | null>(null);
   const [currentViewCenter, setCurrentViewCenter] = useState<{ lat: number; lng: number } | null>(null);
-
-  // Initialize geocoder
-  useEffect(() => {
-    if (typeof google !== 'undefined' && google.maps && !geocoder) {
-      console.log('🗺️ Initializing Google Maps Geocoder...');
-      const newGeocoder = new google.maps.Geocoder();
-      setGeocoder(newGeocoder);
-    }
-  }, [geocoder]);
 
   // Track map center for 10km filtering
   useEffect(() => {
@@ -69,76 +59,37 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
     return R * c;
   }, []);
 
-  // Improved geocoding function with better location parsing
-  const geocodeLocation = useCallback(async (location: string): Promise<{ lat: number; lng: number } | null> => {
-    console.log('📍 Geocoding location:', location);
-    
-    if (!geocoder) {
-      console.log('❌ No geocoder available');
-      return null;
+  // Get coordinates from report (use stored coordinates if available, fallback to geocoding)
+  const getReportCoordinates = useCallback(async (report: Report): Promise<{ lat: number; lng: number } | null> => {
+    // First, try to use stored coordinates from the database
+    if (report.coordinates && report.coordinates.lat && report.coordinates.lng) {
+      console.log('📍 Using stored coordinates for report:', report.id, report.coordinates);
+      return { lat: report.coordinates.lat, lng: report.coordinates.lng };
     }
 
-    try {
-      // Try the full location first
-      let result = await geocoder.geocode({ address: location });
-      console.log('📍 Geocoding result for full location:', result);
-      
-      if (result.results && result.results.length > 0) {
-        const { lat, lng } = result.results[0].geometry.location;
-        const coordinates = { lat: lat(), lng: lng() };
-        console.log('✅ Geocoding successful for full location:', coordinates);
-        return coordinates;
-      }
-      
-      // Try parsing the location string to extract meaningful parts
-      const parts = location.split(',').map(part => part.trim());
-      console.log('📍 Location parts:', parts);
-      
-      // Try different combinations of location parts
-      const attempts = [
-        // Try without the Plus Code (3F6G+R5C)
-        parts.filter(part => !part.match(/^[A-Z0-9]{4}\+[A-Z0-9]{3}$/)).join(', '),
-        // Try just the neighborhood name
-        parts.find(part => part.includes('halli') || part.includes('nagar') || part.includes('layout')) || parts[1],
-        // Try the second part (usually neighborhood)
-        parts[1],
-        // Try the third part (usually city)
-        parts[2]
-      ].filter(Boolean);
-      
-      console.log('📍 Geocoding attempts:', attempts);
-      
-      for (const attempt of attempts) {
-        if (!attempt || attempt.length < 3) continue;
+    // Fallback: geocode the location string (for backward compatibility with old reports)
+    if (report.location) {
+      try {
+        console.log('📍 Geocoding location for report:', report.id, report.location);
         
-        try {
-          console.log('📍 Trying geocoding with:', attempt);
-          result = await geocoder.geocode({ 
-            address: attempt + (attempt.includes('Bengaluru') ? '' : ', Bengaluru, India'),
-            region: 'in' // Restrict to India
-          });
-        
-        if (result.results && result.results.length > 0) {
-          const { lat, lng } = result.results[0].geometry.location;
-          const coordinates = { lat: lat(), lng: lng() };
-            console.log('✅ Geocoding successful with attempt:', attempt, coordinates);
-          return coordinates;
+        if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
+          const geocoder = new google.maps.Geocoder();
+          const result = await geocoder.geocode({ address: report.location });
+          
+          if (result.results && result.results.length > 0) {
+            const { lat, lng } = result.results[0].geometry.location;
+            console.log('📍 Geocoded location:', report.location, 'to:', { lat: lat(), lng: lng() });
+            return { lat: lat(), lng: lng() };
           }
-        } catch (attemptError) {
-          console.warn('⚠️ Geocoding attempt failed for:', attempt, attemptError);
         }
+      } catch (error) {
+        console.warn('⚠️ Error geocoding location for report:', report.id, error);
       }
-      
-      console.warn('⚠️ Could not geocode location:', location);
-      
-      // Fallback: Use Bengaluru center coordinates
-      console.log('🔄 Using fallback coordinates for Bengaluru center');
-      return { lat: 12.9716, lng: 77.5946 };
-    } catch (error) {
-      console.error('❌ Geocoding error:', error);
-      return null;
     }
-  }, [geocoder]);
+
+    console.warn('⚠️ No coordinates available for report:', report.id);
+    return null;
+  }, []);
 
   // Filter reports within 10km of current view
   const filterReportsByDistance = useCallback(async (reports: Report[]): Promise<Report[]> => {
@@ -148,8 +99,8 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
     
     for (const report of reports) {
       try {
-        // Geocode the report location first
-        const coordinates = await geocodeLocation(report.location);
+        // Get coordinates for the report
+        const coordinates = await getReportCoordinates(report);
         if (coordinates) {
           const distance = calculateDistance(
             currentViewCenter.lat,
@@ -164,13 +115,13 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
         }
       } catch (error) {
         console.warn('⚠️ Error filtering report by distance:', error);
-        // Include report if geocoding fails (better to show than hide)
+        // Include report if coordinate retrieval fails (better to show than hide)
         filteredReports.push(report);
       }
     }
     
     return filteredReports;
-  }, [currentViewCenter, calculateDistance, geocodeLocation]);
+  }, [currentViewCenter, calculateDistance, getReportCoordinates]);
 
   // Group reports by location and create clusters with improved logic
   const createLocationClusters = useCallback(async (reports: Report[]): Promise<LocationCluster[]> => {
@@ -189,13 +140,13 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
     const clusters: LocationCluster[] = [];
     
     for (const [location, locationReports] of locationMap) {
-      const coordinates = await geocodeLocation(location);
+      const coordinates = await getReportCoordinates(locationReports[0]);
       if (coordinates) {
-        // Sort reports by priority (emergency first, then by timestamp)
+        // Sort reports by priority (emergency first, then by creation time)
         const sortedReports = locationReports.sort((a, b) => {
           if (a.isEmergency && !b.isEmergency) return -1;
           if (!a.isEmergency && b.isEmergency) return 1;
-          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+          return b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime();
         });
         
         // Determine if any report in cluster is emergency
@@ -205,25 +156,24 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
         // Determine priority for non-emergency reports
         let priority: string | undefined;
         if (!isEmergency) {
-          const firstReport = sortedReports[0];
-          if (firstReport.imageAnalysis?.emergencyLevel) {
-            switch (firstReport.imageAnalysis.emergencyLevel) {
-              case 'CRITICAL':
-              case 'HIGH':
+          // Use AI analysis category to determine priority
+          const reportWithAnalysis = sortedReports.find(r => r.imageAnalysis);
+          if (reportWithAnalysis?.imageAnalysis?.category) {
+            switch (reportWithAnalysis.imageAnalysis.category) {
+              case 'DANGER':
                 priority = 'high';
                 break;
-              case 'MEDIUM':
+              case 'WARNING':
                 priority = 'medium';
                 break;
-              case 'LOW':
-                priority = 'low';
-                break;
-              case 'NONE':
+              case 'SAFE':
                 priority = 'safe';
                 break;
+              default:
+                priority = 'low';
             }
           } else {
-            priority = 'medium'; // Default
+            priority = 'medium'; // Default priority
           }
         }
         
@@ -239,7 +189,7 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
     }
     
     return clusters;
-  }, [geocodeLocation]);
+  }, [getReportCoordinates]);
 
   // Create marker for a cluster with improved icon handling
   const createClusterMarker = useCallback(async (cluster: LocationCluster) => {

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Storage } from '@google-cloud/storage';
 import { db } from '@/lib/fireBaseConfig';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, Firestore } from 'firebase/firestore';
+import { geocodeLocation } from '@/lib/firestore-utils';
 
 // Initialize Google Cloud Storage with Firebase Admin SDK credentials
 let storage: Storage;
@@ -75,6 +76,8 @@ interface ReportData {
   expirationHours?: number;
   userId: string;
 }
+
+
 
 // Function to convert base64 to buffer
 function base64ToBuffer(base64String: string): Buffer {
@@ -175,6 +178,14 @@ async function saveReportToFirestore(reportData: ReportData, imageUrl: string): 
   try {
     const issuesCollection = collection(db, 'raised-issue'); // Using 'raised-issue' collection
     
+    // Geocode the location string
+    const locationCoords = await geocodeLocation(reportData.location);
+    const locationData = locationCoords ? {
+      lat: locationCoords.lat,
+      lng: locationCoords.lng,
+      address: reportData.location
+    } : null;
+
     // Create the document structure matching your Firestore collection
     const reportDoc = {
       // Original report data
@@ -186,7 +197,8 @@ async function saveReportToFirestore(reportData: ReportData, imageUrl: string): 
         lastModified: reportData.photoDetails.lastModified,
         user_id: reportData.userId || 'anonymous' // Add user_id to photoDetails
       },
-      location: reportData.location,
+      location: reportData.location, // Keep original location string for backward compatibility
+      coordinates: locationData, // Store coordinates and address separately
       description: reportData.description,
       isEmergency: reportData.isEmergency,
       emergencyType: reportData.emergencyType,
