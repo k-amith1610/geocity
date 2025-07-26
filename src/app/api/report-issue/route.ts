@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Storage } from '@google-cloud/storage';
 import { db } from '@/lib/fireBaseConfig';
-import { collection, addDoc, serverTimestamp, Firestore } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, Firestore, doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { geocodeLocation } from '@/lib/firestore-utils';
 import twilio from 'twilio';
 
@@ -88,6 +88,34 @@ interface ReportData {
 }
 
 
+
+// Function to increment reward points for logged-in user
+async function incrementUserRewardPoints(userId: string): Promise<boolean> {
+  try {
+    console.log(`🎁 Incrementing reward points for user: ${userId}`);
+    
+    const userRef = doc(db, 'users', userId);
+    
+    // Check if user exists
+    const userDoc = await getDoc(userRef);
+    if (!userDoc.exists()) {
+      console.log(`⚠️ User ${userId} not found in users collection`);
+      return false;
+    }
+    
+    // Increment reward points by 1
+    await updateDoc(userRef, {
+      pointsEarned: increment(1),
+      lastRewardEarned: serverTimestamp()
+    });
+    
+    console.log(`✅ Reward points incremented for user: ${userId}`);
+    return true;
+  } catch (error) {
+    console.error('❌ Error incrementing reward points:', error);
+    return false;
+  }
+}
 
 // Function to convert base64 to buffer
 function base64ToBuffer(base64String: string): Buffer {
@@ -287,6 +315,50 @@ function validateReportData(data: any): data is ReportData {
   return true;
 }
 
+// Function to send Discord notification with image and description
+async function sendDiscordNotification(imageUrl: string, location: string, description: string, isEmergency: boolean, emergencyType?: string): Promise<boolean> {
+  try {
+    console.log('📱 Sending Discord notification for report...');
+    
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : 'http://localhost:3000';
+
+    const discordMessage = `🚨 ${isEmergency ? 'EMERGENCY' : 'ISSUE'} REPORT
+
+📍 Location: ${location}
+${emergencyType ? `🚨 Type: ${emergencyType}` : ''}
+📝 Description: ${description}
+
+${isEmergency ? '🚨 Authorities have been notified via SMS!' : '📋 Report submitted for review.'}`;
+
+    const response = await fetch(`${baseUrl}/api/social/discord`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: discordMessage,
+        imageUrl: imageUrl,
+        isEmergency: isEmergency
+      }),
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      console.log('✅ Discord notification sent successfully');
+      return true;
+    } else {
+      console.error('❌ Discord notification failed:', result.error);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Error sending Discord notification:', error);
+    return false;
+  }
+}
+
 // Main API endpoint
 export async function POST(request: NextRequest) {
   try {
@@ -332,7 +404,29 @@ export async function POST(request: NextRequest) {
 
     console.log('Report saved to Firestore:', reportId);
 
-    // Step 4: Return success response
+    // Step 4: Increment reward points for logged-in user
+    let rewardIncremented = false;
+    if (reportData.userId && reportData.userId !== 'anonymous') {
+      console.log(`🎁 Processing reward for logged-in user: ${reportData.userId}`);
+      rewardIncremented = await incrementUserRewardPoints(reportData.userId);
+    } else {
+      console.log('⏭️ Skipping reward - anonymous user or no userId provided');
+    }
+
+    // Step 5: Send Discord notification
+    console.log('📱 Sending Discord notification...');
+    await sendDiscordNotification(
+      imageUrl, 
+      reportData.location, 
+      reportData.description, 
+      reportData.isEmergency, 
+      reportData.emergencyType || undefined
+    );
+    console.log('✅ Discord notification sent successfully');
+
+    // Step 6: Send emergency SMS if this is an emergency
+
+    // Step 7: Return success response
     return NextResponse.json({
       success: true,
       data: {
