@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "node server.js",
+    "dev:next": "next dev --turbopack",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production node server.js",
+    "start:next": "next start",
     "lint": "next lint",
     "genkit": "genkit dev"
   },
@@ -20,12 +22,16 @@
     "@types/google.maps": "^3.58.1",
     "axios": "^1.10.0",
     "firebase": "^12.0.0",
+    "firebase-admin": "^13.4.0",
     "genkit": "^1.15.1",
     "lucide-react": "^0.525.0",
     "next": "15.4.1",
+    "node-fetch": "^2.7.0",
     "openai": "^5.10.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {

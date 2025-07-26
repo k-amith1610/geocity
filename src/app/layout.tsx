@@ -2,6 +2,12 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { initializeFirestoreWithOfflineHandling } from "@/lib/firestore-utils";
+
+// Initialize Firestore offline handling for development
+if (typeof window !== 'undefined') {
+  initializeFirestoreWithOfflineHandling();
+}
 
 const inter = Inter({ subsets: ["latin"] });
 

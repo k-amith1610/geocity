@@ -19,8 +19,35 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
+let app;
+let db;
+let auth;
+
+try {
+  // Validate Firebase config
+  const requiredKeys = [
+    'apiKey',
+    'authDomain', 
+    'projectId',
+    'storageBucket',
+    'messagingSenderId',
+    'appId'
+  ];
+  
+  const missingKeys = requiredKeys.filter(key => !firebaseConfig[key]);
+  if (missingKeys.length > 0) {
+    console.error('Missing Firebase configuration keys:', missingKeys);
+    throw new Error('Incomplete Firebase configuration');
+  }
+
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+  auth = getAuth(app);
+  
+  console.log('Firebase initialized successfully');
+} catch (error) {
+  console.error('Firebase initialization error:', error);
+  throw error;
+}
 
 export { db, auth };

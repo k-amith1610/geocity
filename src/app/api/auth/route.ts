@@ -160,12 +160,49 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Sign in with Firebase Authentication
-    const userCredential = await signInWithEmailAndPassword(
-      auth,
-      body.email,
-      body.password
-    );
+    // Retry mechanism for Firebase auth with better error handling
+    let userCredential;
+    let lastError;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Firebase auth attempt ${attempt}/${maxRetries}`);
+        
+        // Sign in with Firebase Authentication
+        userCredential = await signInWithEmailAndPassword(
+          auth,
+          body.email,
+          body.password
+        );
+        
+        // If successful, break out of retry loop
+        break;
+      } catch (error: any) {
+        lastError = error;
+        console.error(`Firebase auth attempt ${attempt} failed:`, error.code, error.message);
+        
+        // Don't retry for certain errors
+        if (error.code === 'auth/user-not-found' || 
+            error.code === 'auth/wrong-password' || 
+            error.code === 'auth/invalid-email' ||
+            error.code === 'auth/too-many-requests') {
+          throw error;
+        }
+        
+        // Wait before retrying (exponential backoff)
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+          console.log(`Waiting ${delay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    // If all retries failed
+    if (!userCredential) {
+      throw lastError;
+    }
 
     const firebaseUser = userCredential.user;
 
@@ -222,6 +259,16 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json(
         { error: 'Too many failed login attempts. Please try again later.' },
         { status: 429 }
+      );
+    } else if (error.code === 'auth/network-request-failed') {
+      console.error('Firebase network error details:', {
+        message: error.message,
+        customData: error.customData,
+        stack: error.stack
+      });
+      return NextResponse.json(
+        { error: 'Network error. Please check your internet connection and try again.' },
+        { status: 503 }
       );
     }
 

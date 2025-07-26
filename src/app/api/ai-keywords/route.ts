@@ -2,6 +2,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
 import { z } from 'zod';
+import { configureSSLForDevelopment } from '../../../lib/ssl-utils';
+
+// Configure SSL bypass for development
+configureSSLForDevelopment();
+
+// Configure custom fetch for Google AI API calls
+if (typeof window === 'undefined') {
+  const https = require('https');
+  const nodeFetch = require('node-fetch').default;
+  
+  const httpsAgent = new https.Agent({
+    rejectUnauthorized: false
+  });
+  
+  // Override fetch only for this module
+  global.fetch = (url, options = {}) => {
+    return nodeFetch(url, {
+      ...options,
+      agent: httpsAgent
+    });
+  };
+}
 
 // Initialize Genkit with Google AI
 const ai = genkit({

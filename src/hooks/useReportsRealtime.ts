@@ -51,51 +51,94 @@ export function useReportsRealtime() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'unknown'>('unknown');
 
   useEffect(() => {
+    console.log('🔄 Setting up Firestore listener... (trigger:', refreshTrigger, ')');
     try {
       const reportsRef = collection(db, 'raised-issue');
+      console.log('✅ Reports collection reference created');
       
-      // Query for non-expired reports
-      const now = new Date();
+      // Query for ALL reports first, then filter client-side
       const q = query(
         reportsRef,
         orderBy('createdAt', 'desc')
       );
+      console.log('✅ Firestore query created');
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        const reportsData = snapshot.docs
-          .map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          } as Report))
-          .filter(report => {
-            // Filter out expired reports
-            if (!report.createdAt) return false;
-            
-            const createdAt = report.createdAt.toDate();
-            const expirationHours = report.expirationHours || 24;
-            const expiresAt = new Date(createdAt.getTime() + (expirationHours * 60 * 60 * 1000));
-            
-            return expiresAt > now;
-          });
+        console.log('📊 Firestore snapshot received:', snapshot.docs.length, 'total reports');
+        setConnectionStatus('connected');
+        
+        // First, get ALL reports without filtering
+        const allReportsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as Report));
+        
+        console.log('📋 All reports data:', allReportsData.map(r => ({ 
+          id: r.id, 
+          location: r.location, 
+          isEmergency: r.isEmergency,
+          createdAt: r.createdAt?.toDate(),
+          expirationHours: r.expirationHours
+        })));
+        
+        // Now filter out expired reports
+        const now = new Date();
+        const activeReportsData = allReportsData.filter(report => {
+          if (!report.createdAt) {
+            console.log('⚠️ Report without createdAt:', report.id);
+            return false;
+          }
+          
+          const createdAt = report.createdAt.toDate();
+          const expirationHours = report.expirationHours || 24;
+          const expiresAt = new Date(createdAt.getTime() + (expirationHours * 60 * 60 * 1000));
+          
+          const isExpired = expiresAt <= now;
+          if (isExpired) {
+            console.log('🗑️ Filtering out expired report:', report.id, 'expires at:', expiresAt);
+          }
+          
+          return !isExpired;
+        });
 
-        setReports(reportsData);
+        console.log('✅ Setting reports:', activeReportsData.length, 'active reports');
+        console.log('📍 Active reports locations:', activeReportsData.map(r => r.location));
+        
+        setReports(activeReportsData);
         setLoading(false);
         setError(null);
       }, (error) => {
-        console.error('Error listening to reports:', error);
+        console.error('❌ Error listening to reports:', error);
+        setConnectionStatus('disconnected');
         setError('Failed to load reports');
         setLoading(false);
       });
 
-      return () => unsubscribe();
+      return () => {
+        console.log('🔄 Unsubscribing from Firestore listener');
+        unsubscribe();
+      };
     } catch (error) {
-      console.error('Error setting up reports listener:', error);
+      console.error('❌ Error setting up reports listener:', error);
       setError('Failed to initialize reports listener');
       setLoading(false);
     }
-  }, []);
+  }, [refreshTrigger]);
 
-  return { reports, loading, error };
+  const refreshReports = () => {
+    console.log('Manually refreshing reports...');
+    setRefreshTrigger(prev => prev + 1);
+  };
+
+  // Force immediate refresh when called
+  const forceRefresh = () => {
+    console.log('Force refreshing reports...');
+    setRefreshTrigger(prev => prev + 1);
+  };
+
+  return { reports, loading, error, refreshReports, forceRefresh, connectionStatus, setReports };
 } 

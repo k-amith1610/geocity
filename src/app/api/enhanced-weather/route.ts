@@ -3,6 +3,13 @@ import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
 import { vertexAI } from '@genkit-ai/vertexai';
 import { z } from 'zod';
+import { configureSSLForDevelopment, createSecureFetch } from '../../../lib/ssl-utils';
+
+// Configure SSL bypass for development
+configureSSLForDevelopment();
+
+// Create secure fetch wrapper
+const secureFetch = createSecureFetch();
 
 // Initialize Genkit with Google AI and Vertex AI
 const ai = genkit({
@@ -90,7 +97,7 @@ async function geocodeAddress(address: string): Promise<GeocodingResult | null> 
     const encodedAddress = encodeURIComponent(address);
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${apiKey}`;
     
-    const response = await fetch(url);
+    const response = await secureFetch(url);
     const data = await response.json();
 
     if (data.status !== 'OK' || !data.results || data.results.length === 0) {
@@ -132,12 +139,18 @@ async function fetchSensorDataFromFirebase(lat: number, lng: number, requestedZi
     }
 
     // Get all sensor data from Firebase
-    const response = await fetch(`${firebaseUrl}/sensor_data.json`);
+    const response = await secureFetch(`${firebaseUrl}/sensor_data.json`);
     if (!response.ok) {
       return null;
     }
 
     const allSensorData = await response.json();
+    
+    // Check if allSensorData is null, undefined, or empty
+    if (!allSensorData || typeof allSensorData !== 'object') {
+      console.log('No sensor data available from Firebase');
+      return null;
+    }
     
     // First, try to find exact zip code match
     if (requestedZipCode && allSensorData[requestedZipCode]) {
@@ -161,7 +174,9 @@ async function fetchSensorDataFromFirebase(lat: number, lng: number, requestedZi
     let nearestSensor: any = null;
     let minDistance = Infinity;
     
-    for (const [zipCode, sensorData] of Object.entries(allSensorData)) {
+    // Ensure allSensorData is an object before using Object.entries
+    if (allSensorData && typeof allSensorData === 'object') {
+      for (const [zipCode, sensorData] of Object.entries(allSensorData)) {
       const sensor = sensorData as any;
       if (sensor.location && sensor.location.latitude && sensor.location.longitude) {
         const distance = Math.sqrt(
@@ -174,6 +189,7 @@ async function fetchSensorDataFromFirebase(lat: number, lng: number, requestedZi
           nearestSensor = { ...sensor, zip_code: zipCode };
         }
       }
+    }
     }
     
     // Only return if the nearest sensor is within reasonable distance (20km)
@@ -209,7 +225,7 @@ async function getWeatherData(lat: number, lng: number): Promise<WeatherData | n
       throw new Error('Tomorrow.io API key not configured');
     }
 
-    const response = await fetch(
+    const response = await secureFetch(
       `https://api.tomorrow.io/v4/weather/forecast?location=${lat},${lng}&apikey=${apiKey}`
     );
     
@@ -252,7 +268,7 @@ async function getWeatherData(lat: number, lng: number): Promise<WeatherData | n
     // Get air quality data if available
     let airQuality: number | undefined;
     try {
-      const aqiResponse = await fetch(
+      const aqiResponse = await secureFetch(
         `https://api.tomorrow.io/v4/weather/realtime?location=${lat},${lng}&fields=epaIndex&apikey=${apiKey}`
       );
       if (aqiResponse.ok) {

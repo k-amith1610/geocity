@@ -21,6 +21,9 @@ import { useReportsRealtime, Report } from '@/hooks/useReportsRealtime';
 import { ReportMapMarkers } from '@/components/ReportMapMarkers';
 import { ReportDetailsModal } from '@/components/ReportDetailsModal';
 import { useAutoExpiration } from '@/hooks/useAutoExpiration';
+import { useSocket } from '@/hooks/useSocket';
+import { useSoundAlerts } from '@/hooks/useSoundAlerts';
+import { useAutoCleanup } from '@/hooks/useAutoCleanup';
 
 interface ReportData {
   photo: string; // Base64 encoded
@@ -77,12 +80,78 @@ export default function Home() {
   const [aiSuggestionsLoaded, setAiSuggestionsLoaded] = useState(false);
   
   // Reports system state
-  const { reports, loading: reportsLoading, error: reportsError } = useReportsRealtime();
+  const { reports, loading: reportsLoading, error: reportsError, refreshReports, forceRefresh, connectionStatus, setReports } = useReportsRealtime();
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [isReportDetailsOpen, setIsReportDetailsOpen] = useState(false);
   
-  const { toasts, removeToast, showSuccess, showError } = useToast();
+  // WebSocket for real-time updates
+  const { socket, emit, on, off } = useSocket();
+  const { playEmergencyAlert, playNotificationSound } = useSoundAlerts();
+  
+  // Auto-cleanup for expired reports
+  useAutoCleanup(5); // Run cleanup every 5 minutes
+  
+  const { toasts, removeToast, showSuccess, showError, showInfo } = useToast();
   const { user, isAuthenticated } = useAuth();
+
+  // Test function to verify emergency icons are working
+  const testEmergencyIcons = useCallback(() => {
+    if (!mapInstance || typeof google === 'undefined') {
+      console.log('❌ Map instance or Google Maps not available');
+      return;
+    }
+
+    console.log('🧪 Testing emergency icons...');
+    
+    // Test coordinates (Bengaluru center)
+    const testCoords = { lat: 12.9716, lng: 77.5946 };
+    
+    // Test different emergency types and priorities
+    const testCases = [
+      { type: 'MEDICAL', isEmergency: true, name: 'Medical Emergency', priority: undefined },
+      { type: 'FIRE_HAZARD', isEmergency: true, name: 'Fire Hazard', priority: undefined },
+      { type: 'LAW_ENFORCEMENT', isEmergency: true, name: 'Law Enforcement', priority: undefined },
+      { type: 'ENVIRONMENTAL', isEmergency: true, name: 'Environmental', priority: undefined },
+      { type: undefined, isEmergency: false, name: 'High Priority', priority: 'high' },
+      { type: undefined, isEmergency: false, name: 'Medium Priority', priority: 'medium' },
+      { type: undefined, isEmergency: false, name: 'Low Priority', priority: 'low' },
+      { type: undefined, isEmergency: false, name: 'Safe', priority: 'safe' }
+    ];
+
+    testCases.forEach((testCase, index) => {
+      const offset = index * 0.01; // Small offset for each test marker
+      const position = { 
+        lat: testCoords.lat + offset, 
+        lng: testCoords.lng + offset 
+      };
+
+      // Import the icon functions
+      const { getEmergencyIconConfig, createAnimatedIcon } = require('@/utils/emergencyIcons');
+      
+      // Create icon config
+      const iconConfig = getEmergencyIconConfig(
+        testCase.type,
+        undefined, // category
+        testCase.isEmergency,
+        testCase.priority
+      );
+      
+      // Create animated icon
+      const icon = createAnimatedIcon(iconConfig);
+
+      // Create test marker with emergency icon
+      const marker = new google.maps.Marker({
+        position: position,
+        map: mapInstance,
+        title: `Test: ${testCase.name}`,
+        icon: icon
+      });
+
+      console.log(`✅ Created test marker for ${testCase.name} at`, position);
+    });
+
+    showSuccess('Test Icons Created', 'Emergency icon test markers have been added to the map.');
+  }, [mapInstance, showSuccess]);
 
   // Auto-expiration for reports
   const { getTimeRemaining, isExpired } = useAutoExpiration(reports, (reportId) => {
@@ -95,6 +164,59 @@ export default function Home() {
     setSelectedReport(report);
     setIsReportDetailsOpen(true);
   }, []);
+
+  // WebSocket event handlers
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleReportsUpdated = (data: any) => {
+      console.log('WebSocket event received:', data);
+      
+      if (data.type === 'new-report') {
+        // Play sound based on emergency status
+        if (data.report?.isEmergency) {
+          playEmergencyAlert();
+          showSuccess('Emergency Report', 'A new emergency report has been submitted in your area!');
+        } else {
+          playNotificationSound();
+          showSuccess('New Report', 'A new report has been submitted in your area!');
+        }
+        
+        // Force refresh of reports to get the latest data
+        console.log('Triggering reports refresh after new report');
+        console.log('Current reports count before refresh:', reports.length);
+        forceRefresh(); // Immediate refresh
+        
+        // Multiple refresh attempts to ensure we get the data
+        setTimeout(() => {
+          console.log('First delayed refresh...');
+          forceRefresh();
+        }, 1000);
+        
+        setTimeout(() => {
+          console.log('Second delayed refresh...');
+          forceRefresh();
+        }, 3000);
+        
+        setTimeout(() => {
+          console.log('Third delayed refresh...');
+          forceRefresh();
+        }, 5000);
+      } else if (data.type === 'report-expired') {
+        showInfo('Report Expired', 'A report has expired and been removed from the map.');
+        
+        // Force refresh of reports after expiration
+        console.log('Triggering reports refresh after report expired');
+        forceRefresh(); // Immediate refresh
+      }
+    };
+
+    on('reports-updated', handleReportsUpdated);
+
+    return () => {
+      off('reports-updated', handleReportsUpdated);
+    };
+  }, [socket, on, off, showSuccess, showInfo, forceRefresh]);
 
   // Suppress CoreLocation warnings globally
   useEffect(() => {
@@ -624,6 +746,9 @@ export default function Home() {
 
   const handleMapLoad = useCallback((map: google.maps.Map) => {
     console.log('Map loaded successfully');
+    console.log('Map instance:', map);
+    console.log('Map center:', map.getCenter());
+    console.log('Map zoom:', map.getZoom());
     setMapInstance(map);
     
     // Initialize directions renderer with Google Maps-style colors and markers
@@ -753,6 +878,8 @@ export default function Home() {
         mapInstance={mapInstance}
         onReportClick={handleReportClick}
       />
+      
+
 
       {/* Report Details Modal */}
       <ReportDetailsModal

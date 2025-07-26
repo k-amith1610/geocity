@@ -8,6 +8,7 @@ import { analyzeReportImageAction } from '@/lib/actions';
 import ImageAnalysisBadge from './ImageAnalysisBadge';
 import { AnalyzeImageOutput } from '@/ai/flows/analyze-report-image-flow';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSocket } from '@/hooks/useSocket';
 
 interface ReportModalProps {
   isOpen: boolean;
@@ -45,6 +46,15 @@ interface ReportData {
   userId: string;
 }
 
+interface PlaceSuggestion {
+  place_id: string;
+  description: string;
+  structured_formatting: {
+    main_text: string;
+    secondary_text: string;
+  };
+}
+
 export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: ReportModalProps) {
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -70,11 +80,123 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   
+  // Location suggestions states
+  const [locationSuggestions, setLocationSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
+  const [isGoogleMapsReady, setIsGoogleMapsReady] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const locationInputRef = useRef<HTMLInputElement>(null);
   const { showSuccess, showError, showInfo } = useToast();
   const { user, isAuthenticated } = useAuth();
+  const { emit } = useSocket();
+
+  // Check if Google Maps API is fully loaded
+  const checkGoogleMapsReady = useCallback(() => {
+    const isReady = typeof google !== 'undefined' && 
+           google.maps && 
+           google.maps.places &&
+           google.maps.places.AutocompleteService &&
+           google.maps.Geocoder;
+    
+    return isReady;
+  }, []);
+
+  // Initialize Google Maps services when API is fully loaded
+  useEffect(() => {
+    const initializeGoogleMaps = () => {
+      if (checkGoogleMapsReady()) {
+        setIsGoogleMapsReady(true);
+      }
+    };
+
+    // Check immediately
+    initializeGoogleMaps();
+
+    // If not ready, check periodically
+    if (!isGoogleMapsReady) {
+      const interval = setInterval(() => {
+        if (checkGoogleMapsReady()) {
+          initializeGoogleMaps();
+          clearInterval(interval);
+        }
+      }, 100);
+
+      // Cleanup interval after 10 seconds
+      const timeout = setTimeout(() => {
+        clearInterval(interval);
+      }, 10000);
+
+      return () => {
+        clearInterval(interval);
+        clearTimeout(timeout);
+      };
+    }
+  }, [checkGoogleMapsReady, isGoogleMapsReady]);
+
+  // Handle location input changes with autocomplete
+  const handleLocationChange = useCallback((value: string) => {
+    setLocation(value);
+    setShowLocationSuggestions(value.length > 2);
+    
+    if (value.length > 2 && isGoogleMapsReady && typeof google !== 'undefined' && google.maps && google.maps.places && google.maps.places.AutocompleteService) {
+      try {
+        const service = new google.maps.places.AutocompleteService();
+        service.getPlacePredictions(
+          {
+            input: value,
+            types: ['geocode', 'establishment'],
+            componentRestrictions: { country: 'in' } // Restrict to India
+          },
+          (predictions, status) => {
+            if (status === google.maps.places.PlacesServiceStatus.OK && predictions) {
+              setLocationSuggestions(predictions.slice(0, 5));
+            } else {
+              setLocationSuggestions([]);
+            }
+          }
+        );
+      } catch (error) {
+        console.error('Error getting location suggestions:', error);
+        setLocationSuggestions([]);
+      }
+    } else {
+      setLocationSuggestions([]);
+    }
+  }, [isGoogleMapsReady]);
+
+  // Handle location suggestion selection with map zoom
+  const handleLocationSuggestionSelect = useCallback(async (suggestion: PlaceSuggestion) => {
+    setLocation(suggestion.description);
+    setShowLocationSuggestions(false);
+    setLocationSuggestions([]);
+    
+    // Zoom map to selected location if map instance is available
+    if (mapInstance && typeof google !== 'undefined' && google.maps) {
+      try {
+        const geocoder = new google.maps.Geocoder();
+        const result = await geocoder.geocode({ address: suggestion.description });
+        
+        if (result.results && result.results.length > 0) {
+          const { lat, lng } = result.results[0].geometry.location;
+          const latLng = new google.maps.LatLng(lat(), lng());
+          
+          // Smooth pan to location
+          mapInstance.panTo(latLng);
+          
+          // Set appropriate zoom level
+          mapInstance.setZoom(16);
+          
+          showSuccess('Location Selected', 'Map has been updated to show the selected location.');
+        }
+      } catch (error) {
+        console.warn('Map zoom failed for selected location:', error);
+        // Continue even if map zoom fails
+      }
+    }
+  }, [mapInstance, showSuccess]);
 
   // Emergency type options configuration
   const emergencyTypeOptions = [
@@ -145,21 +267,24 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
     }
   }, []);
 
-  // Handle click outside dropdown
+  // Handle click outside dropdowns
   const handleClickOutside = useCallback((event: MouseEvent) => {
     const target = event.target as Element;
     if (!target.closest('.emergency-dropdown')) {
       setIsEmergencyDropdownOpen(false);
     }
+    if (!target.closest('.location-input-container')) {
+      setShowLocationSuggestions(false);
+    }
   }, []);
 
   // Add click outside listener
   useEffect(() => {
-    if (isEmergencyDropdownOpen) {
+    if (isEmergencyDropdownOpen || showLocationSuggestions) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [isEmergencyDropdownOpen, handleClickOutside]);
+  }, [isEmergencyDropdownOpen, showLocationSuggestions, handleClickOutside]);
 
   // Handle image analysis with Vertex AI
   const handleImageAnalysis = useCallback(async (imageDataUri: string) => {
@@ -612,6 +737,15 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
 
       console.log('Report submitted successfully:', result);
       
+      // Emit WebSocket event for real-time updates
+      emit('report-submitted', {
+        id: result.data.reportId,
+        location: reportData.location,
+        isEmergency: reportData.isEmergency,
+        emergencyType: reportData.emergencyType,
+        timestamp: new Date().toISOString()
+      });
+      
       showSuccess('Report Submitted', result.message || 'Your report has been submitted successfully.');
       handleClose();
     } catch (error) {
@@ -895,11 +1029,14 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
               <label className="block text-xs font-semibold text-gray-900 mb-2">
                 Location <span className="text-red-500">*</span>
               </label>
-              <div className="relative">
+              <div className="relative location-input-container">
                 <input
+                  ref={locationInputRef}
                   type="text"
                   value={location}
-                  onChange={(e) => setLocation(e.target.value)}
+                  onChange={(e) => handleLocationChange(e.target.value)}
+                  onBlur={() => setTimeout(() => setShowLocationSuggestions(false), 100)}
+                  onFocus={() => setShowLocationSuggestions(true)}
                   placeholder="Enter an address or use locator"
                   className="w-full px-3 py-2.5 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent transition-all duration-200 text-sm text-gray-900 placeholder-gray-500"
                 />
@@ -912,6 +1049,31 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
                 >
                   <Locate className={`w-3.5 h-3.5 text-[var(--color-accent)] ${isGettingLocation ? 'animate-spin' : ''}`} />
                 </button>
+                
+                {/* Location Suggestions Dropdown */}
+                {showLocationSuggestions && locationSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+                    {locationSuggestions.map((suggestion) => (
+                      <button
+                        key={suggestion.place_id}
+                        onClick={() => handleLocationSuggestionSelect(suggestion)}
+                        className="w-full px-3 py-2 text-left hover:bg-gray-50 transition-colors duration-150 cursor-pointer border-b border-gray-100 last:border-b-0"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-900 truncate">
+                              {suggestion.structured_formatting.main_text}
+                            </div>
+                            <div className="text-xs text-gray-500 truncate">
+                              {suggestion.structured_formatting.secondary_text}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
