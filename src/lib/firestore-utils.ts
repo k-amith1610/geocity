@@ -3,7 +3,7 @@
  */
 
 import { db } from './fireBaseConfig';
-import { collection, getDocs, updateDoc, doc, query, where, Firestore } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc, query, where, Firestore, getDoc } from 'firebase/firestore';
 
 // Check if we're in development mode
 const isDevelopment = process.env.NODE_ENV === 'development';
@@ -91,7 +91,11 @@ export async function geocodeLocation(locationString: string): Promise<{ lat: nu
     const encodedLocation = encodeURIComponent(locationString);
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedLocation}&key=${apiKey}`;
     
-    const response = await fetch(url);
+    // Use secure fetch with SSL handling
+    const { createSecureFetch } = await import('./ssl-utils');
+    const secureFetch = createSecureFetch();
+    
+    const response = await secureFetch(url);
     const data = await response.json();
 
     if (data.status === 'OK' && data.results && data.results.length > 0) {
@@ -106,7 +110,7 @@ export async function geocodeLocation(locationString: string): Promise<{ lat: nu
       if (data.status === 'ZERO_RESULTS') {
         console.log(`🔄 Retrying geocoding with India region bias for: "${locationString}"`);
         const retryUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedLocation}&region=in&key=${apiKey}`;
-        const retryResponse = await fetch(retryUrl);
+        const retryResponse = await secureFetch(retryUrl);
         const retryData = await retryResponse.json();
         
         if (retryData.status === 'OK' && retryData.results && retryData.results.length > 0) {
@@ -131,18 +135,28 @@ export async function updateExistingReportsWithCoordinates() {
     console.log('🔄 Starting migration to add coordinates to existing reports...');
     
     const reportsRef = collection(db, 'raised-issue');
-    const q = query(reportsRef, where('coordinates', '==', undefined));
-    const snapshot = await getDocs(q);
     
-    console.log(`📋 Found ${snapshot.docs.length} reports without coordinates`);
+    // Get all reports and filter in memory instead of using where() with undefined
+    const snapshot = await getDocs(reportsRef);
+    
+    console.log(`📋 Found ${snapshot.docs.length} total reports`);
     
     let updatedCount = 0;
     let errorCount = 0;
+    let skippedCount = 0;
     
     for (const docSnapshot of snapshot.docs) {
       try {
         const reportData = docSnapshot.data();
         const location = reportData.location;
+        const existingCoordinates = reportData.coordinates;
+        
+        // Skip if coordinates already exist
+        if (existingCoordinates && existingCoordinates.lat && existingCoordinates.lng) {
+          console.log(`⏭️ Report ${docSnapshot.id} already has coordinates, skipping`);
+          skippedCount++;
+          continue;
+        }
         
         if (location && typeof location === 'string') {
           console.log(`📍 Processing report ${docSnapshot.id} with location: "${location}"`);
@@ -177,8 +191,8 @@ export async function updateExistingReportsWithCoordinates() {
       }
     }
     
-    console.log(`✅ Migration completed: ${updatedCount} reports updated, ${errorCount} errors`);
-    return { updatedCount, errorCount };
+    console.log(`✅ Migration completed: ${updatedCount} reports updated, ${skippedCount} skipped, ${errorCount} errors`);
+    return { updatedCount, skippedCount, errorCount };
     
   } catch (error) {
     console.error('❌ Migration failed:', error);
@@ -189,10 +203,11 @@ export async function updateExistingReportsWithCoordinates() {
 // Function to get coordinates for a single report
 export async function getCoordinatesForReport(reportId: string): Promise<{ lat: number; lng: number } | null> {
   try {
-    const reportDoc = await getDocs(query(collection(db, 'raised-issue'), where('__name__', '==', reportId)));
+    const reportRef = doc(db, 'raised-issue', reportId);
+    const reportDoc = await getDoc(reportRef);
     
-    if (!reportDoc.empty) {
-      const reportData = reportDoc.docs[0].data();
+    if (reportDoc.exists()) {
+      const reportData = reportDoc.data();
       const location = reportData.location;
       
       if (location && typeof location === 'string') {

@@ -5,10 +5,6 @@ import { getFirestore, Firestore } from "firebase/firestore";
 import { getAuth, Auth } from "firebase/auth";
 import { getDatabase, Database } from "firebase/database";
 
-// Configure SSL for development if needed
-if (process.env.NODE_ENV === 'development') {
-  process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
-}
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
 

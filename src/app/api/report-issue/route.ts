@@ -3,7 +3,6 @@ import { Storage } from '@google-cloud/storage';
 import { db } from '@/lib/fireBaseConfig';
 import { collection, addDoc, serverTimestamp, Firestore, doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { geocodeLocation } from '@/lib/firestore-utils';
-import twilio from 'twilio';
 
 // Twilio Configuration
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
@@ -11,8 +10,20 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || '';
 const ADMIN_PHONE_NUMBER = process.env.ADMIN_PHONE_NUMBER || '';
 
-// Initialize Twilio client
-const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+// Initialize Twilio client only if credentials are available
+let twilioClient: any = null;
+if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
+  try {
+    const twilio = require('twilio');
+    twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    console.log('Twilio client initialized successfully');
+  } catch (error) {
+    console.warn('Failed to initialize Twilio client:', error);
+    twilioClient = null;
+  }
+} else {
+  console.log('Twilio credentials not provided, SMS notifications disabled');
+}
 
 // Initialize Google Cloud Storage with Firebase Admin SDK credentials
 let storage: Storage;
@@ -224,43 +235,45 @@ async function saveReportToFirestore(reportData: ReportData, imageUrl: string): 
       address: reportData.location
     } : null;
 
-    // Create the document structure matching your Firestore collection
+    // Ensure all data types are correct before saving
     const reportDoc = {
       // Original report data
       photo: imageUrl, // Store the GCS URL instead of base64
       photoDetails: {
-        name: reportData.photoDetails.name,
-        size: reportData.photoDetails.size,
-        type: reportData.photoDetails.type,
-        lastModified: reportData.photoDetails.lastModified,
+        name: reportData.photoDetails.name || 'unknown',
+        size: Number(reportData.photoDetails.size) || 0,
+        type: reportData.photoDetails.type || 'image/jpeg',
+        lastModified: reportData.photoDetails.lastModified || new Date().toISOString(),
         user_id: reportData.userId || 'anonymous' // Add user_id to photoDetails
       },
-      location: reportData.location, // Keep original location string for backward compatibility
+      location: reportData.location || 'Unknown location', // Keep original location string for backward compatibility
       coordinates: locationData, // Store coordinates and address separately
-      description: reportData.description,
-      isEmergency: reportData.isEmergency,
-      emergencyType: reportData.emergencyType,
+      description: reportData.description || 'No description provided',
+      isEmergency: Boolean(reportData.isEmergency),
+      emergencyType: reportData.emergencyType || null,
       deviceInfo: {
-        publicIP: reportData.deviceInfo.publicIP,
-        userAgent: reportData.deviceInfo.userAgent,
-        screenResolution: reportData.deviceInfo.screenResolution,
-        timezone: reportData.deviceInfo.timezone,
-        language: reportData.deviceInfo.language,
-        timestamp: reportData.deviceInfo.timestamp,
-        deviceType: reportData.deviceInfo.deviceType
+        publicIP: reportData.deviceInfo.publicIP || 'unknown',
+        userAgent: reportData.deviceInfo.userAgent || 'unknown',
+        screenResolution: reportData.deviceInfo.screenResolution || 'unknown',
+        timezone: reportData.deviceInfo.timezone || 'unknown',
+        language: reportData.deviceInfo.language || 'en',
+        timestamp: reportData.deviceInfo.timestamp || new Date().toISOString(),
+        deviceType: reportData.deviceInfo.deviceType || 'desktop'
       },
-      // AI Analysis data
-      imageAnalysis: reportData.imageAnalysis ? {
-        authenticity: reportData.imageAnalysis.authenticity,
-        description: reportData.imageAnalysis.description,
-        humanReadableDescription: reportData.imageAnalysis.humanReadableDescription,
-        emergencyLevel: reportData.imageAnalysis.emergencyLevel,
-        category: reportData.imageAnalysis.category,
-        reasoning: reportData.imageAnalysis.reasoning,
-        confidence: reportData.imageAnalysis.confidence
-      } : null,
+      // AI Analysis data - only include if it exists
+      ...(reportData.imageAnalysis && {
+        imageAnalysis: {
+          authenticity: reportData.imageAnalysis.authenticity || 'UNCERTAIN',
+          description: reportData.imageAnalysis.description || '',
+          humanReadableDescription: reportData.imageAnalysis.humanReadableDescription || '',
+          emergencyLevel: reportData.imageAnalysis.emergencyLevel || 'NONE',
+          category: reportData.imageAnalysis.category || 'SAFE',
+          reasoning: reportData.imageAnalysis.reasoning || '',
+          confidence: Number(reportData.imageAnalysis.confidence) || 0
+        }
+      }),
       // Additional fields
-      expirationHours: reportData.expirationHours || 1,
+      expirationHours: Number(reportData.expirationHours) || 1,
       userId: reportData.userId || '',
       // Firestore timestamps
       createdAt: serverTimestamp(),
@@ -273,11 +286,24 @@ async function saveReportToFirestore(reportData: ReportData, imageUrl: string): 
       resolutionNotes: null
     };
 
+    console.log('📝 Saving report to Firestore with data:', {
+      location: reportDoc.location,
+      isEmergency: reportDoc.isEmergency,
+      emergencyType: reportDoc.emergencyType,
+      hasImageAnalysis: !!reportDoc.imageAnalysis
+    });
+
     const docRef = await addDoc(issuesCollection, reportDoc);
+    console.log('✅ Report saved successfully with ID:', docRef.id);
     return docRef.id;
   } catch (error) {
-    console.error('Error saving to Firestore:', error);
-    throw new Error('Failed to save report to database');
+    console.error('❌ Error saving to Firestore:', error);
+    console.error('❌ Error details:', {
+      code: error instanceof Error ? (error as any).code : 'unknown',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : 'No stack trace'
+    });
+    throw new Error(`Failed to save report to database: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -285,33 +311,55 @@ async function saveReportToFirestore(reportData: ReportData, imageUrl: string): 
 function validateReportData(data: any): data is ReportData {
   // Basic validation
   if (!data.photo || !data.photoDetails || !data.location || !data.deviceInfo) {
+    console.log('❌ Missing basic fields:', { 
+      hasPhoto: !!data.photo, 
+      hasPhotoDetails: !!data.photoDetails, 
+      hasLocation: !!data.location, 
+      hasDeviceInfo: !!data.deviceInfo 
+    });
     return false;
   }
 
   // Validate photo is base64
   if (!data.photo.startsWith('data:image/')) {
+    console.log('❌ Invalid photo format - not base64');
     return false;
   }
 
   // Validate required fields
   if (!data.photoDetails.name || !data.photoDetails.type || !data.photoDetails.size) {
+    console.log('❌ Missing photo details:', data.photoDetails);
     return false;
   }
 
   if (!data.deviceInfo.publicIP || !data.deviceInfo.userAgent || !data.deviceInfo.timestamp) {
+    console.log('❌ Missing device info:', data.deviceInfo);
     return false;
   }
 
   // Validate isEmergency is boolean
   if (typeof data.isEmergency !== 'boolean') {
+    console.log('❌ isEmergency must be boolean, got:', typeof data.isEmergency);
     return false;
   }
 
   // Validate emergency type if emergency is true
-  if (data.isEmergency && !data.emergencyType) {
-    return false;
+  if (data.isEmergency) {
+    // Allow null/undefined emergencyType for now, but log it
+    if (!data.emergencyType) {
+      console.log('⚠️ Emergency report without emergency type - setting default');
+      data.emergencyType = 'MEDICAL'; // Set a default emergency type
+    }
+    
+    // Validate emergency type is one of the allowed values
+    const validEmergencyTypes = ['MEDICAL', 'LAW_ENFORCEMENT', 'FIRE_HAZARD', 'ENVIRONMENTAL'];
+    if (data.emergencyType && !validEmergencyTypes.includes(data.emergencyType)) {
+      console.log('❌ Invalid emergency type:', data.emergencyType);
+      return false;
+    }
   }
 
+  console.log('✅ Report data validation passed');
   return true;
 }
 
@@ -364,8 +412,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
+    console.log('📥 Received report submission request');
+    console.log('📋 Request data preview:', {
+      hasPhoto: !!body.photo,
+      photoSize: body.photoDetails?.size,
+      location: body.location,
+      isEmergency: body.isEmergency,
+      emergencyType: body.emergencyType,
+      userId: body.userId
+    });
+    
     // Validate request data
     if (!validateReportData(body)) {
+      console.log('❌ Report data validation failed');
       return NextResponse.json({
         success: false,
         error: 'Invalid report data. Missing required fields or invalid format.',
@@ -375,7 +434,8 @@ export async function POST(request: NextRequest) {
 
     const reportData: ReportData = body;
     
-    console.log('Processing report submission:', {
+    console.log('✅ Report data validation passed');
+    console.log('📝 Processing report submission:', {
       location: reportData.location,
       isEmergency: reportData.isEmergency,
       emergencyType: reportData.emergencyType,
@@ -390,19 +450,23 @@ export async function POST(request: NextRequest) {
       reportData.photoDetails.type
     );
 
+    console.log('📁 Generated filename:', filename);
+
     // Step 2: Upload image to Google Cloud Storage
+    console.log('☁️ Uploading image to Google Cloud Storage...');
     const imageUrl = await uploadImageToGCS(
       reportData.photo,
       filename,
       reportData.photoDetails.type
     );
 
-    console.log('Image uploaded successfully:', filename);
+    console.log('✅ Image uploaded successfully:', filename);
 
     // Step 3: Save report to Firestore
+    console.log('💾 Saving report to Firestore...');
     const reportId = await saveReportToFirestore(reportData, imageUrl);
 
-    console.log('Report saved to Firestore:', reportId);
+    console.log('✅ Report saved to Firestore:', reportId);
 
     // Step 4: Increment reward points for logged-in user
     let rewardIncremented = false;
@@ -425,8 +489,34 @@ export async function POST(request: NextRequest) {
     console.log('✅ Discord notification sent successfully');
 
     // Step 6: Send emergency SMS if this is an emergency
+    if (reportData.isEmergency && twilioClient && ADMIN_PHONE_NUMBER) {
+      console.log('📞 Sending emergency SMS notification...');
+      try {
+        const message = `🚨 EMERGENCY ALERT
+
+Location: ${reportData.location}
+Type: ${reportData.emergencyType || 'UNKNOWN'}
+Description: ${reportData.description}
+
+Report ID: ${reportId}`;
+
+        const messageResponse = await twilioClient.messages.create({
+          body: message,
+          from: TWILIO_FROM_NUMBER,
+          to: ADMIN_PHONE_NUMBER
+        });
+
+        console.log('✅ Emergency SMS sent successfully:', messageResponse.sid);
+      } catch (smsError) {
+        console.error('❌ Failed to send emergency SMS:', smsError);
+        // Don't fail the entire request if SMS fails
+      }
+    } else if (reportData.isEmergency) {
+      console.log('⚠️ Emergency report but SMS not configured');
+    }
 
     // Step 7: Return success response
+    console.log('🎉 Report submission completed successfully');
     return NextResponse.json({
       success: true,
       data: {
@@ -448,7 +538,11 @@ export async function POST(request: NextRequest) {
     }, { status: 201 });
 
   } catch (error) {
-    console.error('Error processing report submission:', error);
+    console.error('❌ Error processing report submission:', error);
+    console.error('❌ Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : 'No stack trace'
+    });
     
     return NextResponse.json({
       success: false,

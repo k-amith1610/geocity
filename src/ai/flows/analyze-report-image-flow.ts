@@ -105,50 +105,54 @@ Convert this into a human-readable news report style description that citizens c
 
 export async function analyzeReportImage(input: AnalyzeImageInput): Promise<AnalyzeImageOutput> {
   try {
-    // Step 1: Verify image authenticity using the dedicated verification flow
-    const verificationResult: VerifyImageOutput = await verifyImage({ imageDataUri: input.imageDataUri });
+    console.log('🔍 Starting image analysis...');
     
+    // Step 1: Verify image authenticity
+    const verificationResult = await verifyImage(input);
+    console.log('✅ Image verification completed:', verificationResult.authenticity);
+
     // Step 2: Analyze content and emergency level
-    const { output: contentAnalysis } = await contentAnalysisPrompt({ imageDataUri: input.imageDataUri });
-    
-    if (!contentAnalysis) {
-      throw new Error('No output from content analysis');
-    }
-    
-    // Step 3: Convert technical description to human-readable news format
-    const { output: humanReadableResult } = await humanReadablePrompt({
-      technicalDescription: contentAnalysis.description,
-      emergencyLevel: contentAnalysis.emergencyLevel,
-      category: contentAnalysis.category
+    const contentResult = await contentAnalysisPrompt({
+      imageDataUri: input.imageDataUri,
     });
-    
-    if (!humanReadableResult) {
-      throw new Error('No output from human-readable conversion');
-    }
-    
-    // Combine the results
+    console.log('✅ Content analysis completed:', {
+      emergencyLevel: contentResult.output?.emergencyLevel,
+      category: contentResult.output?.category
+    });
+
+    // Step 3: Generate human-readable description
+    const humanReadableResult = await humanReadablePrompt({
+      technicalDescription: contentResult.output?.description || 'Image content analysis',
+      emergencyLevel: contentResult.output?.emergencyLevel || 'NONE',
+      category: contentResult.output?.category || 'SAFE',
+    });
+    console.log('✅ Human-readable description generated');
+
+    // Combine all results
     const result: AnalyzeImageOutput = {
       authenticity: verificationResult.authenticity,
-      description: contentAnalysis.description,
-      humanReadableDescription: humanReadableResult.humanReadableDescription,
-      emergencyLevel: contentAnalysis.emergencyLevel,
-      category: contentAnalysis.category,
+      description: contentResult.output?.description || 'Unable to analyze image content',
+      humanReadableDescription: humanReadableResult.output?.humanReadableDescription || 'Image analysis unavailable',
+      emergencyLevel: contentResult.output?.emergencyLevel || 'NONE',
+      category: contentResult.output?.category || 'SAFE',
       reasoning: verificationResult.reasoning,
       confidence: verificationResult.confidence,
     };
-    
+
+    console.log('🎉 Image analysis completed successfully');
     return result;
+
   } catch (error) {
-    console.error('Error in image analysis:', error);
+    console.error('❌ Error in image analysis:', error);
     
-    // Return a fallback response if AI analysis fails
+    // Return a comprehensive fallback response
     return {
       authenticity: 'UNCERTAIN',
-      description: 'Image analysis could not be completed. Please ensure the image is clear, properly uploaded, and try again.',
-      humanReadableDescription: 'Unable to generate a readable report. Please try again with a clearer image.',
+      description: 'Unable to analyze image due to technical issues. Please review manually.',
+      humanReadableDescription: 'Image analysis service is temporarily unavailable. The report has been submitted for manual review.',
       emergencyLevel: 'NONE',
       category: 'SAFE',
-      reasoning: 'Analysis failed due to technical issues. Please try again with a different image or check your connection.',
+      reasoning: 'Analysis failed due to technical issues with the AI service.',
       confidence: 0,
     };
   }

@@ -1,6 +1,10 @@
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
 import { vertexAI } from '@genkit-ai/vertexai';
+import { configureSSLForDevelopment } from '../lib/ssl-utils';
+
+// Configure SSL for development if needed
+configureSSLForDevelopment();
 
 export const ai = genkit({
   plugins: [

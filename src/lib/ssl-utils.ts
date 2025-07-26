@@ -11,6 +11,7 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 /**
  * Configure SSL certificate bypass for development
  * This disables TLS certificate validation for external API calls
+ * Only applies when explicitly needed for specific API calls
  */
 export function configureSSLForDevelopment(): void {
   if (!isDevelopment) {
@@ -18,15 +19,15 @@ export function configureSSLForDevelopment(): void {
     return;
   }
 
-  try {
-    // Direct environment variable (most reliable)
-    process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
-    console.log('SSL bypass configured using NODE_TLS_REJECT_UNAUTHORIZED');
-
-    console.warn('⚠️  SSL certificate validation disabled for development');
-    console.warn('⚠️  This should NEVER be used in production');
-  } catch (error) {
-    console.error('Failed to configure SSL bypass:', error);
+  // Only set the environment variable if it's not already set
+  // This reduces the warning frequency
+  if (!process.env['NODE_TLS_REJECT_UNAUTHORIZED']) {
+    try {
+      process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
+      console.log('SSL bypass configured for development API calls');
+    } catch (error) {
+      console.error('Failed to configure SSL bypass:', error);
+    }
   }
 }
 
@@ -38,18 +39,18 @@ export function createSecureFetch(): typeof fetch {
     return fetch;
   }
 
-  // Configure SSL bypass
-  configureSSLForDevelopment();
-
   // Return a wrapped fetch that includes additional error handling
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     try {
       const response = await fetch(input, init);
       return response;
     } catch (error) {
-      if (error instanceof Error && error.message.includes('certificate')) {
-        console.warn('SSL certificate error detected, retrying with bypass...');
-        // Force SSL bypass and retry
+      if (error instanceof Error && 
+          (error.message.includes('certificate') || 
+           error.message.includes('SSL') || 
+           error.message.includes('TLS'))) {
+        console.warn('SSL certificate error detected, applying development bypass...');
+        // Only set SSL bypass when we encounter an actual SSL error
         process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
         return fetch(input, init);
       }

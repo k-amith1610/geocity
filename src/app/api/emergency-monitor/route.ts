@@ -3,7 +3,6 @@ import { ref, get } from 'firebase/database';
 import { realtimeDb } from '@/lib/fireBaseConfig';
 import { db } from '@/lib/fireBaseConfig';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import twilio from 'twilio';
 
 // Twilio Configuration
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
@@ -11,8 +10,20 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || '';
 const ADMIN_PHONE_NUMBER = process.env.ADMIN_PHONE_NUMBER || '';
 
-// Initialize Twilio client
-const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+// Initialize Twilio client only if credentials are available
+let twilioClient: any = null;
+if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
+  try {
+    const twilio = require('twilio');
+    twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    console.log('Twilio client initialized successfully');
+  } catch (error) {
+    console.warn('Failed to initialize Twilio client:', error);
+    twilioClient = null;
+  }
+} else {
+  console.log('Twilio credentials not provided, SMS notifications disabled');
+}
 
 // Interface for sensor data from Firebase Realtime Database
 interface SensorData {
@@ -57,6 +68,11 @@ async function getLocationFromCoordinates(latitude: number, longitude: number): 
 
 // Function to send emergency SMS notification
 async function sendEmergencySMS(location: string, zipcode: string): Promise<void> {
+  if (!twilioClient) {
+    console.warn('Twilio client not initialized, cannot send SMS notification.');
+    return;
+  }
+
   try {
     console.log('📱 Sending emergency SMS notification...');
     console.log(`📞 To: ${ADMIN_PHONE_NUMBER}`);
