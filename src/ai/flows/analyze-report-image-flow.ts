@@ -88,7 +88,7 @@ const humanReadablePrompt = ai.definePrompt({
 - Keep it concise but informative (2-3 sentences)
 - Avoid technical jargon unless necessary
 
-**Style Requirements:**
+**Style Requirements:**l
 - Start with the main incident/event
 - Include key details about what happened
 - Mention any visible damage, injuries, or hazards

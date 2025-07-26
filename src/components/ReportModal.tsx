@@ -580,7 +580,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
         emergencyType: emergencyType || undefined,
         deviceInfo: {
           ...deviceInfo,
-          timestamp: new Date() // Use Firebase timestamp format
+          timestamp: new Date().toISOString() // Use ISO string format for API compatibility
         },
         // Include AI analysis data
         imageAnalysis: imageAnalysis || undefined,
@@ -590,15 +590,33 @@ export default function ReportModal({ isOpen, onClose, onSubmit, mapInstance }: 
         userId: isAuthenticated && user ? user.uid : ''
       };
 
+      // Call the real API endpoint
+      const response = await fetch('/api/report-issue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(reportData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to submit report');
+      }
+
+      // Also call the original onSubmit for backward compatibility
       if (onSubmit) {
         await onSubmit(reportData);
       }
-      console.log(reportData);
+
+      console.log('Report submitted successfully:', result);
       
-      showSuccess('Report Submitted', 'Your report has been submitted successfully.');
+      showSuccess('Report Submitted', result.message || 'Your report has been submitted successfully.');
       handleClose();
     } catch (error) {
-      showError('Submission Error', 'Failed to submit report. Please try again.');
+      console.error('Submission error:', error);
+      showError('Submission Error', error instanceof Error ? error.message : 'Failed to submit report. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

@@ -17,6 +17,10 @@ import {
   EnhancedWeatherResponse,
   SocialMediaResponse
 } from '@/lib/api';
+import { useReportsRealtime, Report } from '@/hooks/useReportsRealtime';
+import { ReportMapMarkers } from '@/components/ReportMapMarkers';
+import { ReportDetailsModal } from '@/components/ReportDetailsModal';
+import { useAutoExpiration } from '@/hooks/useAutoExpiration';
 
 interface ReportData {
   photo: string; // Base64 encoded
@@ -72,8 +76,25 @@ export default function Home() {
   const [isLoadingSocialMedia, setIsLoadingSocialMedia] = useState(false);
   const [aiSuggestionsLoaded, setAiSuggestionsLoaded] = useState(false);
   
+  // Reports system state
+  const { reports, loading: reportsLoading, error: reportsError } = useReportsRealtime();
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [isReportDetailsOpen, setIsReportDetailsOpen] = useState(false);
+  
   const { toasts, removeToast, showSuccess, showError } = useToast();
   const { user, isAuthenticated } = useAuth();
+
+  // Auto-expiration for reports
+  const { getTimeRemaining, isExpired } = useAutoExpiration(reports, (reportId) => {
+    // This will be handled by the real-time listener automatically
+    console.log('Report expired:', reportId);
+  });
+
+  // Handle report click
+  const handleReportClick = useCallback((report: Report) => {
+    setSelectedReport(report);
+    setIsReportDetailsOpen(true);
+  }, []);
 
   // Suppress CoreLocation warnings globally
   useEffect(() => {
@@ -725,6 +746,23 @@ export default function Home() {
 
       {/* Toast Container */}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+      {/* Report Map Markers */}
+      <ReportMapMarkers
+        reports={reports}
+        mapInstance={mapInstance}
+        onReportClick={handleReportClick}
+      />
+
+      {/* Report Details Modal */}
+      <ReportDetailsModal
+        isOpen={isReportDetailsOpen}
+        report={selectedReport}
+        onClose={() => {
+          setIsReportDetailsOpen(false);
+          setSelectedReport(null);
+        }}
+      />
 
       {/* Navigation Bar */}
       <NavigationBar
