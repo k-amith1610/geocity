@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/Toast'
 import { ToastContainer } from '@/components/Toast'
+import GoogleSignIn from '@/components/GoogleSignIn'
 
 const SignInPage = () => {
     const [formData, setFormData] = useState({
@@ -22,6 +23,17 @@ const SignInPage = () => {
     const { login } = useAuth();
     const router = useRouter();
     const { toasts, removeToast, showError, showSuccess } = useToast();
+
+    const handleGoogleSuccess = () => {
+        showSuccess('Welcome Back!', 'Successfully signed in with Google.');
+        setTimeout(() => {
+            router.push('/');
+        }, 1000);
+    };
+
+    const handleGoogleError = (error: string) => {
+        showError('Google Sign-In Failed', error);
+    };
 
     const handleInputChange = (field: string, value: string) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -260,6 +272,25 @@ const SignInPage = () => {
                             {isLoading ? 'Signing In...' : 'Sign In'}
                         </button>
                     </form>
+
+                    {/* Divider */}
+                    <div className="relative">
+                        <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-gray-300" />
+                        </div>
+                        <div className="relative flex justify-center text-sm">
+                            <span className="px-2 bg-white text-gray-500">Or continue with</span>
+                        </div>
+                    </div>
+
+                    {/* Google Sign In */}
+                    <div className="flex justify-center">
+                        <GoogleSignIn
+                            onSuccess={handleGoogleSuccess}
+                            onError={handleGoogleError}
+                            disabled={isLoading}
+                        />
+                    </div>
 
                     {/* Sign Up Link */}
                     <div className="text-center">

@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/Toast'
 import { ToastContainer } from '@/components/Toast'
+import GoogleSignIn from '@/components/GoogleSignIn'
 
 const SignUpPage = () => {
     const [formData, setFormData] = useState({
@@ -27,6 +28,17 @@ const SignUpPage = () => {
     const { signup } = useAuth();
     const router = useRouter();
     const { toasts, removeToast, showError, showSuccess } = useToast();
+
+    const handleGoogleSuccess = () => {
+        showSuccess('Account Created!', 'Your account has been successfully created with Google. Welcome to GEOCITY!');
+        setTimeout(() => {
+            router.push('/');
+        }, 1000);
+    };
+
+    const handleGoogleError = (error: string) => {
+        showError('Google Sign-Up Failed', error);
+    };
 
     // Re-validate confirm password when password changes
     useEffect(() => {
@@ -427,6 +439,25 @@ const SignUpPage = () => {
                             {isLoading ? 'Creating Account...' : 'Sign Up'}
                         </button>
                     </form>
+
+                    {/* Divider */}
+                    <div className="relative">
+                        <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-gray-300" />
+                        </div>
+                        <div className="relative flex justify-center text-sm">
+                            <span className="px-2 bg-white text-gray-500">Or continue with</span>
+                        </div>
+                    </div>
+
+                    {/* Google Sign In */}
+                    <div className="flex justify-center">
+                        <GoogleSignIn
+                            onSuccess={handleGoogleSuccess}
+                            onError={handleGoogleError}
+                            disabled={isLoading}
+                        />
+                    </div>
 
                     {/* Sign In Link */}
                     <div className="text-center">

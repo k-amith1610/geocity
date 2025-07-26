@@ -18,6 +18,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (userData: any) => Promise<void>;
+  loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -135,6 +136,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const loginWithGoogle = async (idToken: string) => {
+    try {
+      const response = await api.post('/auth/google', { idToken });
+      const { user: userData, token } = response.data;
+
+      // Store auth data
+      localStorage.setItem('authToken', token);
+      localStorage.setItem('userData', JSON.stringify(userData));
+      
+      setUser(userData);
+    } catch (error: any) {
+      console.error('Google login error:', error);
+      
+      // Handle axios error response
+      if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      } else if (error.message) {
+        throw new Error(error.message);
+      } else {
+        throw new Error('Google authentication failed');
+      }
+    }
+  };
+
   const logout = () => {
     // Clear local storage
     localStorage.removeItem('authToken');
@@ -154,6 +179,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     login,
     signup,
+    loginWithGoogle,
     logout,
     isAuthenticated: !!user,
   };

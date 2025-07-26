@@ -12,6 +12,7 @@
     "genkit": "genkit dev"
   },
   "dependencies": {
+    "@firebase/auth": "^1.11.0",
     "@genkit-ai/firebase": "^1.15.5",
     "@genkit-ai/googleai": "^1.15.1",
     "@genkit-ai/vertexai": "^1.15.1",
