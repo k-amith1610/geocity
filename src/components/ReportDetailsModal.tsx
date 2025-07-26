@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Clock, MapPin, AlertTriangle, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Clock, MapPin, AlertTriangle, CheckCircle, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Report } from '@/hooks/useReportsRealtime';
 
 interface ReportDetailsModalProps {
@@ -12,17 +12,30 @@ interface ReportDetailsModalProps {
 
 export function ReportDetailsModal({ isOpen, report, onClose }: ReportDetailsModalProps) {
   const [timeRemaining, setTimeRemaining] = useState<string>('');
+  const [currentReportIndex, setCurrentReportIndex] = useState(0);
 
-  // Calculate time remaining
+  // Get all reports from cluster if available
+  const allReports = (report as any)?._allReportsFromCluster || [report];
+  const currentReport = allReports[currentReportIndex];
+  const hasMultipleReports = allReports.length > 1;
+
+  // Reset index when modal opens with new report
   useEffect(() => {
-    if (!report || !report.createdAt) {
+    if (report) {
+      setCurrentReportIndex(0);
+    }
+  }, [report]);
+
+  // Calculate time remaining for current report
+  useEffect(() => {
+    if (!currentReport || !currentReport.createdAt) {
       setTimeRemaining('Unknown');
       return;
     }
 
     const updateTimeRemaining = () => {
-      const createdAt = report.createdAt.toDate();
-      const expirationHours = report.expirationHours || 24;
+      const createdAt = currentReport.createdAt.toDate();
+      const expirationHours = currentReport.expirationHours || 24;
       const expiresAt = new Date(createdAt.getTime() + (expirationHours * 60 * 60 * 1000));
       const now = new Date();
       const diff = expiresAt.getTime() - now.getTime();
@@ -46,32 +59,40 @@ export function ReportDetailsModal({ isOpen, report, onClose }: ReportDetailsMod
     const interval = setInterval(updateTimeRemaining, 60000); // Update every minute
 
     return () => clearInterval(interval);
-  }, [report]);
+  }, [currentReport]);
 
-  if (!isOpen || !report) return null;
+  if (!isOpen || !currentReport) return null;
 
   const getPriorityColor = () => {
-    if (report.isEmergency) return 'text-red-600';
-    if (report.imageAnalysis?.category === 'DANGER') return 'text-red-600';
-    if (report.imageAnalysis?.category === 'WARNING') return 'text-yellow-600';
+    if (currentReport.isEmergency) return 'text-red-600';
+    if (currentReport.imageAnalysis?.category === 'DANGER') return 'text-red-600';
+    if (currentReport.imageAnalysis?.category === 'WARNING') return 'text-yellow-600';
     return 'text-green-600';
   };
 
   const getPriorityIcon = () => {
-    if (report.isEmergency) return <AlertTriangle className="w-5 h-5 text-red-600" />;
-    if (report.imageAnalysis?.category === 'DANGER') return <AlertCircle className="w-5 h-5 text-red-600" />;
-    if (report.imageAnalysis?.category === 'WARNING') return <AlertTriangle className="w-5 h-5 text-yellow-600" />;
+    if (currentReport.isEmergency) return <AlertTriangle className="w-5 h-5 text-red-600" />;
+    if (currentReport.imageAnalysis?.category === 'DANGER') return <AlertCircle className="w-5 h-5 text-red-600" />;
+    if (currentReport.imageAnalysis?.category === 'WARNING') return <AlertTriangle className="w-5 h-5 text-yellow-600" />;
     return <CheckCircle className="w-5 h-5 text-green-600" />;
   };
 
   const getEmergencyTypeLabel = () => {
-    switch (report.emergencyType) {
+    switch (currentReport.emergencyType) {
       case 'MEDICAL': return 'Medical Emergency';
       case 'LAW_ENFORCEMENT': return 'Law Enforcement';
       case 'FIRE_HAZARD': return 'Fire & Hazard';
       case 'ENVIRONMENTAL': return 'Environmental Hazard';
       default: return 'General Report';
     }
+  };
+
+  const goToNextReport = () => {
+    setCurrentReportIndex((prev) => (prev + 1) % allReports.length);
+  };
+
+  const goToPreviousReport = () => {
+    setCurrentReportIndex((prev) => (prev - 1 + allReports.length) % allReports.length);
   };
 
   return (
@@ -86,7 +107,12 @@ export function ReportDetailsModal({ isOpen, report, onClose }: ReportDetailsMod
             {getPriorityIcon()}
             <div>
               <h2 className="text-lg font-bold text-gray-900">
-                {report.isEmergency ? 'Emergency Report' : 'Citizen Report'}
+                {currentReport.isEmergency ? 'Emergency Report' : 'Citizen Report'}
+                {hasMultipleReports && (
+                  <span className="text-sm text-gray-500 ml-2">
+                    ({currentReportIndex + 1} of {allReports.length})
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-gray-600">
                 {getEmergencyTypeLabel()}
@@ -101,13 +127,36 @@ export function ReportDetailsModal({ isOpen, report, onClose }: ReportDetailsMod
           </button>
         </div>
 
+        {/* Navigation for multiple reports */}
+        {hasMultipleReports && (
+          <div className="flex items-center justify-between p-2 bg-gray-50 border-b border-gray-200">
+            <button
+              onClick={goToPreviousReport}
+              className="flex items-center space-x-1 px-3 py-1 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Previous</span>
+            </button>
+            <span className="text-sm text-gray-500">
+              Report {currentReportIndex + 1} of {allReports.length}
+            </span>
+            <button
+              onClick={goToNextReport}
+              className="flex items-center space-x-1 px-3 py-1 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+            >
+              <span>Next</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Image */}
-          {report.photo && (
+          {currentReport.photo && (
             <div>
               <img
-                src={report.photo}
+                src={currentReport.photo}
                 alt="Report"
                 className="w-full h-48 object-cover rounded-lg border border-gray-200"
               />
@@ -119,48 +168,48 @@ export function ReportDetailsModal({ isOpen, report, onClose }: ReportDetailsMod
             <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
             <div>
               <h3 className="text-sm font-semibold text-gray-900">Location</h3>
-              <p className="text-sm text-gray-600">{report.location}</p>
+              <p className="text-sm text-gray-600">{currentReport.location}</p>
             </div>
           </div>
 
           {/* Description */}
-          {report.description && (
+          {currentReport.description && (
             <div>
               <h3 className="text-sm font-semibold text-gray-900 mb-2">Description</h3>
-              <p className="text-sm text-gray-600 leading-relaxed">{report.description}</p>
+              <p className="text-sm text-gray-600 leading-relaxed">{currentReport.description}</p>
             </div>
           )}
 
           {/* AI Analysis */}
-          {report.imageAnalysis && (
+          {currentReport.imageAnalysis && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <h3 className="text-sm font-semibold text-blue-900 mb-2">AI Analysis</h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="text-xs text-blue-700">Authenticity:</span>
                   <span className={`text-xs font-medium ${
-                    report.imageAnalysis.authenticity === 'REAL' ? 'text-green-600' : 
-                    report.imageAnalysis.authenticity === 'AI_GENERATED' ? 'text-red-600' : 'text-yellow-600'
+                    currentReport.imageAnalysis.authenticity === 'REAL' ? 'text-green-600' : 
+                    currentReport.imageAnalysis.authenticity === 'AI_GENERATED' ? 'text-red-600' : 'text-yellow-600'
                   }`}>
-                    {report.imageAnalysis.authenticity}
+                    {currentReport.imageAnalysis.authenticity}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-blue-700">Emergency Level:</span>
                   <span className={`text-xs font-medium ${getPriorityColor()}`}>
-                    {report.imageAnalysis.emergencyLevel}
+                    {currentReport.imageAnalysis.emergencyLevel}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs text-blue-700">Category:</span>
                   <span className={`text-xs font-medium ${getPriorityColor()}`}>
-                    {report.imageAnalysis.category}
+                    {currentReport.imageAnalysis.category}
                   </span>
                 </div>
-                {report.imageAnalysis.humanReadableDescription && (
+                {currentReport.imageAnalysis.humanReadableDescription && (
                   <div className="mt-2">
                     <p className="text-xs text-blue-800 leading-relaxed">
-                      {report.imageAnalysis.humanReadableDescription}
+                      {currentReport.imageAnalysis.humanReadableDescription}
                     </p>
                   </div>
                 )}
@@ -171,7 +220,7 @@ export function ReportDetailsModal({ isOpen, report, onClose }: ReportDetailsMod
           {/* Time Information */}
           <div className="flex items-center space-x-2 text-sm text-gray-500">
             <Clock className="w-4 h-4" />
-            <span>Reported: {report.createdAt?.toDate().toLocaleString()}</span>
+            <span>Reported: {currentReport.createdAt?.toDate().toLocaleString()}</span>
           </div>
 
           {/* Time Remaining */}
@@ -188,20 +237,20 @@ export function ReportDetailsModal({ isOpen, report, onClose }: ReportDetailsMod
             <div className="space-y-1 text-xs text-gray-600">
               <div className="flex justify-between">
                 <span>Status:</span>
-                <span className="font-medium">{report.status}</span>
+                <span className="font-medium">{currentReport.status}</span>
               </div>
               <div className="flex justify-between">
                 <span>Priority:</span>
-                <span className="font-medium">{report.priority}</span>
+                <span className="font-medium">{currentReport.priority}</span>
               </div>
               <div className="flex justify-between">
                 <span>Expiration:</span>
-                <span className="font-medium">{report.expirationHours || 24} hours</span>
+                <span className="font-medium">{currentReport.expirationHours || 24} hours</span>
               </div>
-              {report.userId && (
+              {currentReport.userId && (
                 <div className="flex justify-between">
                   <span>User ID:</span>
-                  <span className="font-medium">{report.userId.substring(0, 8)}...</span>
+                  <span className="font-medium">{currentReport.userId.substring(0, 8)}...</span>
                 </div>
               )}
             </div>

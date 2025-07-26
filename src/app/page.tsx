@@ -21,10 +21,12 @@ import { useReportsRealtime, Report } from '@/hooks/useReportsRealtime';
 import { ReportMapMarkers } from '@/components/ReportMapMarkers';
 import { ReportDetailsModal } from '@/components/ReportDetailsModal';
 import { useAutoExpiration } from '@/hooks/useAutoExpiration';
-import MigrationButton from '@/components/MigrationButton';
 import { useSocket } from '@/hooks/useSocket';
 import { useSoundAlerts } from '@/hooks/useSoundAlerts';
 import { useAutoCleanup } from '@/hooks/useAutoCleanup';
+import { useAutoMigration } from '@/hooks/useAutoMigration';
+import { useAutoErrorRecovery } from '@/hooks/useAutoErrorRecovery';
+import { useSystemHealth } from '@/hooks/useSystemHealth';
 
 interface ReportData {
   photo: string; // Base64 encoded
@@ -95,17 +97,29 @@ export default function Home() {
   const { toasts, removeToast, showSuccess, showError, showInfo } = useToast();
   const { user, isAuthenticated } = useAuth();
 
-
-
   // Auto-expiration for reports
   const { getTimeRemaining, isExpired } = useAutoExpiration(reports, (reportId) => {
     // This will be handled by the real-time listener automatically
     console.log('Report expired:', reportId);
   });
 
+  // Auto migration system
+  const { migrationStatus } = useAutoMigration();
+
+  // Auto error recovery system
+  const { recoveryStatus } = useAutoErrorRecovery();
+
+  // System health monitoring
+  const { health, getRecommendations } = useSystemHealth();
+
   // Handle report click
-  const handleReportClick = useCallback((report: Report) => {
+  const handleReportClick = useCallback((report: Report, allReports?: Report[]) => {
     setSelectedReport(report);
+    // Store all reports from the cluster if available
+    if (allReports && allReports.length > 1) {
+      // We'll pass this to the modal to show all reports
+      setSelectedReport({ ...report, _allReportsFromCluster: allReports } as any);
+    }
     setIsReportDetailsOpen(true);
   }, []);
 
@@ -840,11 +854,6 @@ export default function Home() {
         onLocationUpdate={handleLocationUpdate}
         directionsRenderer={directionsRenderer}
       />
-
-      {/* Migration Button (for testing) */}
-      {process.env.NODE_ENV === 'development' && (
-        <MigrationButton />
-      )}
     </div>
   );
 }

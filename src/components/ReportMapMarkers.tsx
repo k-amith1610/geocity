@@ -7,7 +7,7 @@ import { getEmergencyIconConfig, createAnimatedIcon, createClusterIcon } from '@
 interface ReportMapMarkersProps {
   reports: Report[];
   mapInstance: google.maps.Map | null;
-  onReportClick?: (report: Report) => void;
+  onReportClick?: (report: Report, allReports?: Report[]) => void;
 }
 
 interface LocationCluster {
@@ -21,29 +21,29 @@ interface LocationCluster {
 
 export function ReportMapMarkers({ reports, mapInstance, onReportClick }: ReportMapMarkersProps) {
   const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
-  const [currentViewCenter, setCurrentViewCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [currentZoom, setCurrentZoom] = useState<number>(5);
 
-  // Track map center for 10km filtering
+  // Track map zoom level for clustering
   useEffect(() => {
     if (!mapInstance) return;
 
-    const updateViewCenter = () => {
-      const center = mapInstance.getCenter();
-      if (center) {
-        setCurrentViewCenter({ lat: center.lat(), lng: center.lng() });
+    const updateZoom = () => {
+      const zoom = mapInstance.getZoom();
+      if (zoom !== undefined) {
+        setCurrentZoom(zoom);
       }
     };
 
-    // Update center on map movement
-    const boundsChangedListener = mapInstance.addListener('bounds_changed', updateViewCenter);
-    const centerChangedListener = mapInstance.addListener('center_changed', updateViewCenter);
+    // Update zoom on map changes
+    const zoomChangedListener = mapInstance.addListener('zoom_changed', updateZoom);
+    const boundsChangedListener = mapInstance.addListener('bounds_changed', updateZoom);
     
-    // Initial center
-    updateViewCenter();
+    // Initial zoom
+    updateZoom();
 
     return () => {
+      google.maps.event.removeListener(zoomChangedListener);
       google.maps.event.removeListener(boundsChangedListener);
-      google.maps.event.removeListener(centerChangedListener);
     };
   }, [mapInstance]);
 
@@ -90,38 +90,6 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
     console.warn('⚠️ No coordinates available for report:', report.id);
     return null;
   }, []);
-
-  // Filter reports within 10km of current view
-  const filterReportsByDistance = useCallback(async (reports: Report[]): Promise<Report[]> => {
-    if (!currentViewCenter) return reports;
-
-    const filteredReports: Report[] = [];
-    
-    for (const report of reports) {
-      try {
-        // Get coordinates for the report
-        const coordinates = await getReportCoordinates(report);
-        if (coordinates) {
-          const distance = calculateDistance(
-            currentViewCenter.lat,
-            currentViewCenter.lng,
-            coordinates.lat,
-            coordinates.lng
-          );
-          
-          if (distance <= 10) { // 10km radius
-            filteredReports.push(report);
-          }
-        }
-      } catch (error) {
-        console.warn('⚠️ Error filtering report by distance:', error);
-        // Include report if coordinate retrieval fails (better to show than hide)
-        filteredReports.push(report);
-      }
-    }
-    
-    return filteredReports;
-  }, [currentViewCenter, calculateDistance, getReportCoordinates]);
 
   // Group reports by location and create clusters with improved logic
   const createLocationClusters = useCallback(async (reports: Report[]): Promise<LocationCluster[]> => {
@@ -188,8 +156,79 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
       }
     }
     
+    // If zoom level is low (zoomed out), we might want to cluster nearby locations
+    if (currentZoom <= 8 && clusters.length > 1) {
+      return clusterNearbyLocations(clusters);
+    }
+    
     return clusters;
-  }, [getReportCoordinates]);
+  }, [getReportCoordinates, currentZoom]);
+
+  // Function to cluster nearby locations when zoomed out
+  const clusterNearbyLocations = useCallback((clusters: LocationCluster[]): LocationCluster[] => {
+    const clustered: LocationCluster[] = [];
+    const processed = new Set<number>();
+    
+    for (let i = 0; i < clusters.length; i++) {
+      if (processed.has(i)) continue;
+      
+      const cluster = clusters[i];
+      const nearbyClusters: LocationCluster[] = [cluster];
+      processed.add(i);
+      
+      // Find nearby clusters (within 50km when zoomed out)
+      for (let j = i + 1; j < clusters.length; j++) {
+        if (processed.has(j)) continue;
+        
+        const otherCluster = clusters[j];
+        const distance = calculateDistance(
+          cluster.coordinates.lat,
+          cluster.coordinates.lng,
+          otherCluster.coordinates.lat,
+          otherCluster.coordinates.lng
+        );
+        
+        if (distance <= 50) { // 50km radius for clustering when zoomed out
+          nearbyClusters.push(otherCluster);
+          processed.add(j);
+        }
+      }
+      
+      if (nearbyClusters.length === 1) {
+        // Single cluster, keep as is
+        clustered.push(cluster);
+      } else {
+        // Multiple nearby clusters, merge them
+        const allReports = nearbyClusters.flatMap(c => c.reports);
+        const isEmergency = allReports.some(r => r.isEmergency);
+        const emergencyType = allReports.find(r => r.isEmergency)?.emergencyType;
+        
+        // Calculate center point of all clusters
+        const totalLat = nearbyClusters.reduce((sum, c) => sum + c.coordinates.lat, 0);
+        const totalLng = nearbyClusters.reduce((sum, c) => sum + c.coordinates.lng, 0);
+        const centerLat = totalLat / nearbyClusters.length;
+        const centerLng = totalLng / nearbyClusters.length;
+        
+        // Sort reports by priority
+        const sortedReports = allReports.sort((a, b) => {
+          if (a.isEmergency && !b.isEmergency) return -1;
+          if (!a.isEmergency && b.isEmergency) return 1;
+          return b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime();
+        });
+        
+        clustered.push({
+          location: `${nearbyClusters.length} locations`,
+          coordinates: { lat: centerLat, lng: centerLng },
+          reports: sortedReports,
+          isEmergency,
+          emergencyType,
+          priority: isEmergency ? 'high' : 'medium'
+        });
+      }
+    }
+    
+    return clustered;
+  }, [calculateDistance]);
 
   // Create marker for a cluster with improved icon handling
   const createClusterMarker = useCallback(async (cluster: LocationCluster) => {
@@ -232,8 +271,14 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
     // Add click listener
     marker.addListener('click', () => {
       if (onReportClick) {
-        // Show the most important report (first in sorted array)
-        onReportClick(cluster.reports[0]);
+        // Pass all reports from the cluster instead of just the first one
+        if (cluster.reports.length > 1) {
+          // For multiple reports, pass the entire cluster
+          onReportClick(cluster.reports[0], cluster.reports);
+        } else {
+          // For single report, pass just the report
+          onReportClick(cluster.reports[0]);
+        }
       }
     });
 
@@ -259,6 +304,7 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
   useEffect(() => {
     console.log('🗺️ ReportMapMarkers: Reports changed:', reports.length, 'reports');
     console.log('🗺️ ReportMapMarkers: Map instance:', !!mapInstance);
+    console.log('🗺️ ReportMapMarkers: Current zoom:', currentZoom);
     
     if (!mapInstance) {
       console.log('❌ ReportMapMarkers: No map instance, skipping marker updates');
@@ -274,11 +320,10 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
     // Create clusters and markers
     const updateMarkers = async () => {
       try {
-        // Filter reports by distance first
-        const filteredReports = await filterReportsByDistance(reports);
-        console.log('📍 Filtered reports within 10km:', filteredReports.length, 'of', reports.length, 'total');
+        // Use all reports without distance filtering
+        console.log('📍 Processing all reports:', reports.length, 'total');
 
-        const clusters = await createLocationClusters(filteredReports);
+        const clusters = await createLocationClusters(reports);
         console.log('✅ Created clusters:', clusters.length);
         
         for (const cluster of clusters) {
@@ -290,7 +335,7 @@ export function ReportMapMarkers({ reports, mapInstance, onReportClick }: Report
     };
 
     updateMarkers();
-  }, [reports, mapInstance, createLocationClusters, createClusterMarker, filterReportsByDistance]);
+  }, [reports, mapInstance, createLocationClusters, createClusterMarker, currentZoom, clusterNearbyLocations]);
 
   // Cleanup markers when component unmounts
   useEffect(() => {
