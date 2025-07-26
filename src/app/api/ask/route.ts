@@ -4,58 +4,6 @@ import OpenAI from 'openai';
 // In-memory chat memory (temporary, resets on server restart)
 const chatMemory = new Map<string, any[]>();
 
-// Static city incident data (can be fetched from Firestore later)
-const INCIDENTS = [
-  {
-    id: 1,
-    type: 'Traffic Jam',
-    location: 'Banjara Hills Road No. 12',
-    time: '2025-07-19T08:15:00Z',
-    status: 'Ongoing',
-    description: 'Heavy congestion due to stalled vehicle and peak hour rush.'
-  },
-  {
-    id: 2,
-    type: 'Power Outage',
-    location: 'Madhapur Tech Hub',
-    time: '2025-07-19T06:45:00Z',
-    status: 'Ongoing',
-    description: 'Transformer issue affecting major IT offices and residential blocks.'
-  },
-  {
-    id: 3,
-    type: 'Flooding',
-    location: 'Begumpet underpass',
-    time: '2025-07-18T22:30:00Z',
-    status: 'Resolved',
-    description: 'Waterlogged after overnight rains. Drained and reopened by GHMC.'
-  },
-  {
-    id: 4,
-    type: 'Fire Accident',
-    location: 'Kukatpally Industrial Area',
-    time: '2025-07-18T20:10:00Z',
-    status: 'Resolved',
-    description: 'Short circuit led to fire in a warehouse. No casualties reported.'
-  },
-  {
-    id: 5,
-    type: 'Water Supply Disruption',
-    location: 'Secunderabad Cantonment',
-    time: '2025-07-19T04:00:00Z',
-    status: 'Ongoing',
-    description: 'Pipeline maintenance causing low pressure in nearby areas.'
-  }
-];
-
-
-// Format incidents for prompt
-function formatIncidentData() {
-  return INCIDENTS.map(i =>
-    `- [${i.type}] at ${i.location} (${i.status}): ${i.description}`
-  ).join('\n');
-}
-
 export async function POST(request: NextRequest) {
   try {
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -76,11 +24,14 @@ export async function POST(request: NextRequest) {
     const previousMessages = chatMemory.get(sessionId) || [];
 
     const systemPrompt = `
-You are a helpful smart city AI assistant.
-Use the incident data below to answer questions.
+You are a helpful smart city AI assistant. You can help users with:
+- General city information and navigation
+- Weather and traffic conditions
+- Emergency services and safety information
+- Public transportation and routes
+- City services and utilities
 
-City Incident Data (as of June 1, 2024):
-${formatIncidentData()}
+Please provide accurate and helpful information based on your knowledge. If you need real-time data, suggest that the user check the appropriate city services or use the app's real-time features.
 `;
 
     const fullMessages = [
@@ -103,18 +54,23 @@ ${formatIncidentData()}
       { role: 'assistant', content: assistantReply }
     ];
 
-    // Save updated memory
+    // Update chat memory
     chatMemory.set(sessionId, updatedMessages);
 
     return NextResponse.json({
       status: 'success',
-      answer: assistantReply,
-      messages: updatedMessages,
-      timestamp: new Date().toISOString()
+      message: 'Response generated successfully',
+      data: {
+        response: assistantReply,
+        sessionId
+      }
     });
 
-  } catch (error: any) {
-    console.error('OpenAI chat error:', error?.message || error);
-    return NextResponse.json({ status: 'error', message: 'Internal server error' }, { status: 500 });
+  } catch (error) {
+    console.error('Error generating response:', error);
+    return NextResponse.json(
+      { status: 'error', message: 'Failed to generate response' },
+      { status: 500 }
+    );
   }
 }

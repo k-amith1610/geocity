@@ -94,64 +94,7 @@ export default function Home() {
   const { toasts, removeToast, showSuccess, showError, showInfo } = useToast();
   const { user, isAuthenticated } = useAuth();
 
-  // Test function to verify emergency icons are working
-  const testEmergencyIcons = useCallback(() => {
-    if (!mapInstance || typeof google === 'undefined') {
-      console.log('❌ Map instance or Google Maps not available');
-      return;
-    }
 
-    console.log('🧪 Testing emergency icons...');
-    
-    // Test coordinates (Bengaluru center)
-    const testCoords = { lat: 12.9716, lng: 77.5946 };
-    
-    // Test different emergency types and priorities
-    const testCases = [
-      { type: 'MEDICAL', isEmergency: true, name: 'Medical Emergency', priority: undefined },
-      { type: 'FIRE_HAZARD', isEmergency: true, name: 'Fire Hazard', priority: undefined },
-      { type: 'LAW_ENFORCEMENT', isEmergency: true, name: 'Law Enforcement', priority: undefined },
-      { type: 'ENVIRONMENTAL', isEmergency: true, name: 'Environmental', priority: undefined },
-      { type: undefined, isEmergency: false, name: 'High Priority', priority: 'high' },
-      { type: undefined, isEmergency: false, name: 'Medium Priority', priority: 'medium' },
-      { type: undefined, isEmergency: false, name: 'Low Priority', priority: 'low' },
-      { type: undefined, isEmergency: false, name: 'Safe', priority: 'safe' }
-    ];
-
-    testCases.forEach((testCase, index) => {
-      const offset = index * 0.01; // Small offset for each test marker
-      const position = { 
-        lat: testCoords.lat + offset, 
-        lng: testCoords.lng + offset 
-      };
-
-      // Import the icon functions
-      const { getEmergencyIconConfig, createAnimatedIcon } = require('@/utils/emergencyIcons');
-      
-      // Create icon config
-      const iconConfig = getEmergencyIconConfig(
-        testCase.type,
-        undefined, // category
-        testCase.isEmergency,
-        testCase.priority
-      );
-      
-      // Create animated icon
-      const icon = createAnimatedIcon(iconConfig);
-
-      // Create test marker with emergency icon
-      const marker = new google.maps.Marker({
-        position: position,
-        map: mapInstance,
-        title: `Test: ${testCase.name}`,
-        icon: icon
-      });
-
-      console.log(`✅ Created test marker for ${testCase.name} at`, position);
-    });
-
-    showSuccess('Test Icons Created', 'Emergency icon test markers have been added to the map.');
-  }, [mapInstance, showSuccess]);
 
   // Auto-expiration for reports
   const { getTimeRemaining, isExpired } = useAutoExpiration(reports, (reportId) => {

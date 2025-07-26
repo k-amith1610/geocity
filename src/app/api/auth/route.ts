@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth, db } from '@/lib/fireBaseConfig';
+import { configureSSLForDevelopment } from '@/lib/ssl-utils';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
@@ -8,6 +9,9 @@ import {
   updateProfile,
   User as FirebaseUser
 } from 'firebase/auth';
+
+// Configure SSL for development
+configureSSLForDevelopment();
 import { 
   collection, 
   doc, 
@@ -238,6 +242,20 @@ export async function PUT(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Error logging in user:', error);
+    
+    // Log detailed network error information
+    if (error.code === 'auth/network-request-failed') {
+      console.error('Firebase network error details:', {
+        message: error.message,
+        customData: error.customData,
+        stack: error.stack
+      });
+      
+      return NextResponse.json(
+        { error: 'Network error - please check your internet connection and try again' },
+        { status: 503 }
+      );
+    }
     
     // Handle Firebase Auth specific errors
     if (error.code === 'auth/user-not-found') {
