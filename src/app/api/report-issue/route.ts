@@ -3,6 +3,16 @@ import { Storage } from '@google-cloud/storage';
 import { db } from '@/lib/fireBaseConfig';
 import { collection, addDoc, serverTimestamp, Firestore } from 'firebase/firestore';
 import { geocodeLocation } from '@/lib/firestore-utils';
+import twilio from 'twilio';
+
+// Twilio Configuration
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
+const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || '';
+const ADMIN_PHONE_NUMBER = process.env.ADMIN_PHONE_NUMBER || '';
+
+// Initialize Twilio client
+const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
 // Initialize Google Cloud Storage with Firebase Admin SDK credentials
 let storage: Storage;
