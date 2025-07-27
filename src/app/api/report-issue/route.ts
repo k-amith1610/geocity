@@ -368,10 +368,6 @@ async function sendDiscordNotification(imageUrl: string, location: string, descr
   try {
     console.log('📱 Sending Discord notification for report...');
     
-    const baseUrl = process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}` 
-      : 'http://localhost:3000';
-
     const discordMessage = `🚨 ${isEmergency ? 'EMERGENCY' : 'ISSUE'} REPORT
 
 📍 Location: ${location}
@@ -380,25 +376,48 @@ ${emergencyType ? `🚨 Type: ${emergencyType}` : ''}
 
 ${isEmergency ? '🚨 Authorities have been notified via SMS!' : '📋 Report submitted for review.'}`;
 
-    const response = await fetch(`${baseUrl}/api/social/discord`, {
+    // Import the Discord webhook URL directly
+    const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+    
+    if (!DISCORD_WEBHOOK_URL) {
+      console.error('❌ Discord webhook URL not configured');
+      return false;
+    }
+
+    // Create Discord embed for notification
+    const discordMessageData = {
+      embeds: [
+        {
+          title: isEmergency ? '🚨 EMERGENCY ALERT' : '📋 ISSUE REPORT',
+          description: discordMessage,
+          color: isEmergency ? 0xFF0000 : 0x00FF00, // Red for emergency, Green for regular
+          timestamp: new Date().toISOString(),
+          footer: {
+            text: 'GeoCity Emergency Monitoring System'
+          },
+          ...(imageUrl && {
+            image: {
+              url: imageUrl
+            }
+          })
+        }
+      ]
+    };
+
+    const response = await fetch(DISCORD_WEBHOOK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        message: discordMessage,
-        imageUrl: imageUrl,
-        isEmergency: isEmergency
-      }),
+      body: JSON.stringify(discordMessageData),
     });
 
-    const result = await response.json();
-
-    if (response.ok && result.success) {
+        if (response.ok) {
       console.log('✅ Discord notification sent successfully');
       return true;
     } else {
-      console.error('❌ Discord notification failed:', result.error);
+      const errorText = await response.text();
+      console.error('❌ Discord notification failed:', response.status, errorText);
       return false;
     }
   } catch (error) {
