@@ -2,10 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
 import { z } from 'zod';
-import { configureSSLForDevelopment } from '../../../lib/ssl-utils';
-
-// Configure SSL bypass for development
-configureSSLForDevelopment();
 
 // Configure custom fetch for Google AI API calls
 if (typeof window === 'undefined') {

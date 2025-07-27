@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
     config.externals = config.externals || [];
     if (typeof config.externals === 'function') {
       const originalExternals = config.externals;
-      config.externals = (context, request, callback) => {
+      config.externals = (context: any, request: any, callback: any) => {
         if (request === '@opentelemetry/winston-transport' || 
             request === '@opentelemetry/instrumentation-winston' ||
             request === '@opentelemetry/instrumentation' ||
@@ -54,16 +54,14 @@ const nextConfig: NextConfig = {
     return config;
   },
   // Disable server-side rendering for problematic components
-  experimental: {
-    serverComponentsExternalPackages: [
-      '@opentelemetry/instrumentation-winston',
-      '@opentelemetry/winston-transport',
-      '@opentelemetry/instrumentation',
-      '@opentelemetry/sdk-node',
-      'handlebars',
-      'twilio'
-    ]
-  }
+  serverExternalPackages: [
+    '@opentelemetry/instrumentation-winston',
+    '@opentelemetry/winston-transport',
+    '@opentelemetry/instrumentation',
+    '@opentelemetry/sdk-node',
+    'handlebars',
+    'twilio'
+  ]
 };
 
 export default nextConfig;

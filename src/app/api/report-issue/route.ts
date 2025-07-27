@@ -10,12 +10,14 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || '';
 const ADMIN_PHONE_NUMBER = process.env.ADMIN_PHONE_NUMBER || '';
 
-// Initialize Twilio client only if credentials are available
+// Initialize Twilio client if credentials are available
 let twilioClient: any = null;
+
 if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
   try {
-    const twilio = require('twilio');
-    twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    // Dynamic import to avoid require() ESLint error
+    const twilio = await import('twilio');
+    twilioClient = twilio.default(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
     console.log('Twilio client initialized successfully');
   } catch (error) {
     console.warn('Failed to initialize Twilio client:', error);
